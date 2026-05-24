@@ -8,32 +8,20 @@ services:
       - "${PORT:-8080}:8080"
     environment:
       SERVERSENTINEL_CONFIG_DIR: /config
+      SERVERSENTINEL_SERVERS_DIR: /data/servers
+      SERVERSENTINEL_SERVERS_DOCKER_VOLUME: serversentinel-minecraft-servers
       MODRINTH_API_KEY: ${MODRINTH_API_KEY:-}
       PORT: 8080
     volumes:
       - serversentinel-config:/config
-      - minecraft-server:/data/servers/survival
-      # Optional but powerful: enables Docker container status/control/logs.
+      - minecraft-servers:/data/servers
+      # Optional but powerful: enables ServerSentinel to create/start/stop
+      # separate Minecraft runtime containers using Docker.
       # Only mount this in trusted environments.
       # - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped
 
-  # Example existing Fabric server. ServerSentinel attaches to this container;
-  # it does not create it, install Fabric, or run Java itself.
-  minecraft:
-    image: itzg/minecraft-server:latest
-    container_name: minecraft
-    environment:
-      EULA: "TRUE"
-      TYPE: FABRIC
-      VERSION: ${MINECRAFT_VERSION:-1.21.4}
-      MEMORY: ${MINECRAFT_MEMORY:-4G}
-    volumes:
-      - minecraft-server:/data
-    ports:
-      - "25565:25565"
-    restart: unless-stopped
-
 volumes:
   serversentinel-config:
-  minecraft-server:
+  minecraft-servers:
+    name: serversentinel-minecraft-servers

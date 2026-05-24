@@ -1,6 +1,7 @@
 node_modules/
 dist/
 .local-config/
+.local-servers/
 .env
 .env.*
 !.env.example

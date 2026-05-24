@@ -197,6 +197,34 @@ h2 {
   gap: 10px;
 }
 
+.attachForm .checkLine {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  text-transform: none;
+}
+
+.attachForm .checkLine input {
+  width: auto;
+}
+
+.advanced {
+  border: 1px solid #2f383d;
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.advanced summary {
+  cursor: pointer;
+  color: #c6d0d6;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.advanced label {
+  margin-top: 10px;
+}
+
 .buttonRow,
 .commandLine,
 .fileActions,
