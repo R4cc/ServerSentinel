@@ -875,6 +875,7 @@ code {
   justify-content: space-between;
   gap: var(--space-3);
   align-items: center;
+  flex-wrap: wrap;
   margin-bottom: var(--space-4);
   padding-bottom: var(--space-2);
   border-bottom: var(--border-strong) solid var(--border);
@@ -1017,7 +1018,7 @@ code {
 }
 
 .overviewPage {
-  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   align-items: start;
 }
 
@@ -1147,13 +1148,12 @@ code {
 
 .serverSummary {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr));
   gap: var(--space-2);
-  margin-bottom: var(--space-4);
 }
 
 .summaryTile {
-  min-height: 96px;
+  min-height: 86px;
   border: var(--border-strong) solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface-muted);
@@ -1194,9 +1194,9 @@ code {
 
 .resourceStats {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
   gap: var(--space-2);
-  margin-bottom: var(--space-4);
+  margin-bottom: var(--space-3);
 }
 
 .resourceMetric {
@@ -1209,8 +1209,11 @@ code {
 }
 
 .resourceMetric span,
-.resourceCharts span {
+.resourceMetric small {
   color: var(--text-muted);
+}
+
+.resourceMetric span {
   font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.08em;
@@ -1221,6 +1224,13 @@ code {
   font-size: 22px;
   font-weight: 900;
   letter-spacing: -0.03em;
+  line-height: 1.1;
+  overflow-wrap: anywhere;
+}
+
+.resourceMetric small {
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .resourceMeta {
@@ -1228,7 +1238,7 @@ code {
   flex-wrap: wrap;
   gap: var(--space-2) var(--space-3);
   justify-content: space-between;
-  margin: calc(var(--space-2) * -1) 0 var(--space-3);
+  margin: 0 0 var(--space-3);
   color: var(--text-muted);
   font-size: 12px;
 }
@@ -1242,63 +1252,6 @@ code {
   padding: var(--space-2) var(--space-3);
   font-size: 13px;
   line-height: 1.4;
-}
-
-.resourceCharts {
-  display: grid;
-  gap: var(--space-3);
-}
-
-.resourceCharts > div {
-  display: grid;
-  gap: var(--space-2);
-}
-
-.chartHeader {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-3);
-  align-items: center;
-}
-
-.chartHeader strong {
-  color: var(--text);
-  font-size: 12px;
-  font-weight: 900;
-}
-
-.resourceChart {
-  width: 100%;
-  height: 132px;
-  border: var(--border-strong) solid var(--border);
-  border-radius: var(--radius-md);
-  background:
-    linear-gradient(rgb(0 0 0 / 0.05) 1px, transparent 1px) 0 0 / 24px 24px,
-    linear-gradient(90deg, rgb(0 0 0 / 0.05) 1px, transparent 1px) 0 0 / 24px 24px,
-    var(--surface);
-}
-
-.resourceChart line {
-  stroke: var(--text-soft);
-  stroke-width: 1;
-}
-
-.resourceChart polyline {
-  fill: none;
-  stroke: var(--accent);
-  stroke-width: 4;
-  stroke-linecap: round;
-  stroke-linejoin: round;
-}
-
-.resourceChart circle {
-  fill: var(--accent);
-}
-
-.resourceChart text {
-  fill: var(--text-muted);
-  font-size: 13px;
-  font-weight: 900;
 }
 
 .terminal {
