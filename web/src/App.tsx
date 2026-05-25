@@ -338,6 +338,7 @@ export default function App() {
   const [dirty, setDirty] = useState(false);
   const [query, setQuery] = useState("");
   const [modSearchResults, setModSearchResults] = useState<ModrinthHit[]>([]);
+  const [isSearchingMods, setIsSearchingMods] = useState(false);
   const [installedMods, setInstalledMods] = useState<InstalledMod[]>([]);
   const [modsView, setModsView] = useState<"manager" | "search">("manager");
   const [resourceSamples, setResourceSamples] = useState<ResourceSample[]>([]);
@@ -482,9 +483,11 @@ export default function App() {
     const trimmedQuery = query.trim();
     if (!trimmedQuery) {
       setModSearchResults([]);
+      setIsSearchingMods(false);
       return;
     }
     let cancelled = false;
+    setIsSearchingMods(true);
     const timeout = window.setTimeout(async () => {
       try {
         const result = await api<{ hits: ModrinthHit[] }>(
@@ -496,10 +499,13 @@ export default function App() {
           setNotice((error as Error).message);
           notify("error", (error as Error).message);
         }
+      } finally {
+        if (!cancelled) setIsSearchingMods(false);
       }
     }, 250);
     return () => {
       cancelled = true;
+      setIsSearchingMods(false);
       window.clearTimeout(timeout);
     };
   }, [activeServer?.id, activeTab, appState.modrinthApiConfigured, modsView, query]);
@@ -821,6 +827,7 @@ export default function App() {
     if (isProvisioning) return;
     if (!activeServer) return;
     setNotice("");
+    setIsSearchingMods(true);
     try {
       const result = await api<{ hits: ModrinthHit[] }>(
         `/api/modrinth/search?query=${encodeURIComponent(query)}&serverId=${encodeURIComponent(activeServer.id)}`
@@ -853,6 +860,8 @@ export default function App() {
     } catch (error) {
       setNotice((error as Error).message);
       notify("error", (error as Error).message);
+    } finally {
+      setIsSearchingMods(false);
     }
   }
 
@@ -1389,9 +1398,20 @@ export default function App() {
                     <>
                       <form onSubmit={searchMods} className="modSearch">
                         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search compatible Fabric mods" disabled={isProvisioning || !appState.modrinthApiConfigured} />
-                        <button disabled={isProvisioning || !appState.modrinthApiConfigured || !query.trim()}>Refresh</button>
+                        <button disabled={isProvisioning || isSearchingMods || !appState.modrinthApiConfigured || !query.trim()}>{isSearchingMods ? "Searching" : "Refresh"}</button>
                       </form>
                       <div className="mods">
+                        {isSearchingMods && Array.from({ length: 4 }, (_, index) => (
+                          <article key={`mod-skeleton-${index}`} className="modRow modSkeleton" aria-hidden="true">
+                            <span className="skeletonBlock icon" />
+                            <div>
+                              <span className="skeletonBlock title" />
+                              <span className="skeletonBlock line" />
+                              <span className="skeletonBlock meta" />
+                            </div>
+                            <span className="skeletonBlock button" />
+                          </article>
+                        ))}
                         {modSearchResults.map((mod) => (
                           <article key={mod.project_id} className="modRow">
                             {mod.icon_url ? <img src={mod.icon_url} alt="" /> : <div className="modFileIcon">MOD</div>}

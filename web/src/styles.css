@@ -1489,6 +1489,65 @@ code {
   object-fit: cover;
 }
 
+.modSkeleton {
+  pointer-events: none;
+}
+
+.skeletonBlock {
+  display: block;
+  border-radius: var(--radius-sm);
+  background:
+    linear-gradient(90deg, transparent, rgb(255 255 255 / 0.45), transparent),
+    var(--surface-muted);
+  background-size: 220% 100%;
+  animation: skeletonSweep 1100ms linear infinite;
+}
+
+.themeDark .skeletonBlock {
+  background:
+    linear-gradient(90deg, transparent, rgb(255 255 255 / 0.12), transparent),
+    var(--surface-muted);
+  background-size: 220% 100%;
+}
+
+.skeletonBlock.icon {
+  width: 52px;
+  height: 52px;
+  border: var(--border-strong) solid var(--border);
+}
+
+.skeletonBlock.title {
+  width: min(260px, 80%);
+  height: 18px;
+  margin-bottom: var(--space-2);
+}
+
+.skeletonBlock.line {
+  width: min(520px, 100%);
+  height: 13px;
+  margin-bottom: var(--space-2);
+}
+
+.skeletonBlock.meta {
+  width: 120px;
+  height: 12px;
+}
+
+.skeletonBlock.button {
+  width: 96px;
+  height: 44px;
+}
+
+@keyframes skeletonSweep {
+  from {
+    background-position: 220% 0;
+  }
+
+  to {
+    background-position: -220% 0;
+  }
+}
+
 .addModRow {
   width: 100%;
   min-height: 82px;
