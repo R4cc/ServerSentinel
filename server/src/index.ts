@@ -187,6 +187,17 @@ function defaultContainerName(displayName: string) {
   return `serversentinel-${slugify(displayName)}`;
 }
 
+function defaultDockerImageForMinecraftVersion(version?: string) {
+  const [major, minor, patch] = (version ?? "").split(".").map((part) => Number(part));
+  if (Number.isFinite(major) && major >= 26) {
+    return "eclipse-temurin:25-jre";
+  }
+  if (major === 1 && Number.isFinite(minor) && minor >= 20 && (minor > 20 || (patch ?? 0) >= 5)) {
+    return "eclipse-temurin:21-jre";
+  }
+  return "eclipse-temurin:17-jre";
+}
+
 async function getServer(serverId?: string) {
   const servers = await readServers();
   const server = serverId ? servers.find((candidate) => candidate.id === serverId) : servers[0];
@@ -482,6 +493,18 @@ async function removeDockerContainer(server: AttachedServer) {
   await dockerRequest("DELETE", `/containers/${encodeURIComponent(dockerContainerName(server))}?force=1`, 204);
 }
 
+async function removeManagedDockerContainer(server: AttachedServer) {
+  const existing = await inspectDockerContainer(server);
+  if (!existing) {
+    return false;
+  }
+  if (existing.Config?.Labels?.["serversentinel.managed"] !== "true") {
+    throw new Error(`Container ${dockerContainerName(server)} exists but is not managed by ServerSentinel; refusing to delete it`);
+  }
+  await removeDockerContainer(server);
+  return true;
+}
+
 function splitImage(image: string) {
   const slashIndex = image.lastIndexOf("/");
   const colonIndex = image.lastIndexOf(":");
@@ -552,7 +575,7 @@ async function ensureDockerContainer(server: AttachedServer) {
     throw new Error("Docker managed control requires Docker mount source and server jar filename");
   }
 
-  const image = server.dockerImage || "eclipse-temurin:21-jre";
+  const image = server.dockerImage || defaultDockerImageForMinecraftVersion(server.minecraftVersion);
   await ensureDockerImage(image);
   const { exposedPorts, portBindings } = parseDockerPorts(server.dockerPorts || "25565:25565/tcp");
   const javaArgs = server.javaArgs || "-Xms2G -Xmx4G";
@@ -985,7 +1008,7 @@ async function createManagedServer(input: CreateServerInput, report?: (progress:
     installerVersion,
     serverJar,
     dockerContainer: input.dockerContainer?.trim() || defaultContainerName(displayName),
-    dockerImage: input.dockerImage?.trim() || "eclipse-temurin:21-jre",
+    dockerImage: input.dockerImage?.trim() || defaultDockerImageForMinecraftVersion(minecraftVersion),
     dockerMountSource: config.serversDockerVolume || resolvedServerDir,
     dockerWorkingDir: config.serversDockerVolume ? `/data/servers/${storageName}` : undefined,
     dockerPorts: input.dockerPorts?.trim() || `${serverPort}:${serverPort}/tcp`,
@@ -1244,7 +1267,7 @@ app.put<{
     installerVersion,
     serverJar,
     dockerContainer: request.body.dockerContainer?.trim() || current.dockerContainer,
-    dockerImage: request.body.dockerImage?.trim() || current.dockerImage || "eclipse-temurin:21-jre",
+    dockerImage: request.body.dockerImage?.trim() || current.dockerImage || defaultDockerImageForMinecraftVersion(minecraftVersion),
     dockerPorts: request.body.dockerPorts?.trim() || (serverPort ? `${serverPort}:${serverPort}/tcp` : current.dockerPorts),
     javaArgs: request.body.javaArgs?.trim() || current.javaArgs,
     updatedAt: new Date().toISOString()
@@ -1282,6 +1305,7 @@ app.delete<{
     throw new Error(`Type "${server.displayName}" to confirm deletion`);
   }
 
+  const deletedContainer = dockerAvailable() ? await removeManagedDockerContainer(server) : false;
   let deletedFiles = false;
   if (request.body.deleteFiles) {
     const directory = ensureManagedServerDirectory(server);
@@ -1291,7 +1315,7 @@ app.delete<{
 
   servers.splice(index, 1);
   await writeServers(servers);
-  return { ok: true, deletedFiles };
+  return { ok: true, deletedFiles, deletedContainer };
 });
 
 app.get<{ Params: { id: string } }>("/api/servers/:id/status", async (request) => {

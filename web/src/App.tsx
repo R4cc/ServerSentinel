@@ -207,6 +207,13 @@ function memoryArgs(memoryGb: number) {
   return `-Xms${Math.max(1, Math.floor(memoryGb / 2))}G -Xmx${memoryGb}G`;
 }
 
+function defaultDockerImageForMinecraftVersion(version?: string) {
+  const [major, minor, patch] = (version ?? "").split(".").map((part) => Number(part));
+  if (Number.isFinite(major) && major >= 26) return "eclipse-temurin:25-jre";
+  if (major === 1 && Number.isFinite(minor) && minor >= 20 && (minor > 20 || (patch ?? 0) >= 5)) return "eclipse-temurin:21-jre";
+  return "eclipse-temurin:17-jre";
+}
+
 function replaceMemoryArgs(javaArgs: string, memoryGb: number) {
   const xms = `-Xms${Math.max(1, Math.floor(memoryGb / 2))}G`;
   const xmx = `-Xmx${memoryGb}G`;
@@ -292,6 +299,7 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [notices, setNotices] = useState<Notice[]>([]);
   const [provisionJob, setProvisionJob] = useState<ProvisionJob | null>(null);
+  const [consoleStreamVersion, setConsoleStreamVersion] = useState(0);
   const [activePage, setActivePage] = useState<ActivePage>("server");
   const [activeTab, setActiveTab] = useState<"overview" | "files" | "mods" | "schedule" | "settings">("overview");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -350,7 +358,7 @@ export default function App() {
     };
     socket.onerror = () => setLogs(["Console stream is unavailable."]);
     return () => socket.close();
-  }, [activeServer?.id]);
+  }, [activeServer?.id, consoleStreamVersion]);
 
   useEffect(() => {
     consoleRef.current?.scrollTo({ top: consoleRef.current.scrollHeight });
@@ -402,6 +410,17 @@ export default function App() {
       setStatus(await api<ServerStatus>(`/api/servers/${serverId}/status`));
     } catch (error) {
       setNotice((error as Error).message);
+    }
+  }
+
+  async function refreshConsoleLogs(serverId = activeServer?.id) {
+    if (!serverId) return;
+    try {
+      const result = await api<{ text: string; source: string }>(`/api/servers/${serverId}/logs`);
+      const lines = result.text.split(/\r?\n/).filter(Boolean).slice(-200);
+      setLogs(lines.map((line) => `[${result.source}] ${line}`));
+    } catch {
+      setConsoleStreamVersion((version) => version + 1);
     }
   }
 
@@ -463,6 +482,9 @@ export default function App() {
       setActiveServerId(server.id);
       setActivePage("server");
       setActiveTab("overview");
+      setConsoleStreamVersion((version) => version + 1);
+      await refreshStatus(server.id);
+      await refreshConsoleLogs(server.id);
       notify("success", `Created ${server.displayName}`);
       window.setTimeout(() => setProvisionJob(null), 1200);
     } catch (error) {
@@ -527,6 +549,8 @@ export default function App() {
     try {
       await api(`/api/servers/${activeServer.id}/${action}`, { method: "POST" });
       await refreshStatus(activeServer.id);
+      setConsoleStreamVersion((version) => version + 1);
+      await refreshConsoleLogs(activeServer.id);
       notify("success", `Sent ${action} request`);
     } catch (error) {
       setNotice((error as Error).message);
@@ -1206,7 +1230,7 @@ function SchedulePage({
   disabled: boolean;
   commandInputMessage: string;
 }) {
-  const [commandCount, setCommandCount] = useState(1);
+  const [commandIds, setCommandIds] = useState(() => [crypto.randomUUID()]);
 
   return (
     <section className="tabPage schedulePage">
@@ -1233,10 +1257,22 @@ function SchedulePage({
             </label>
             <div className="commandStack">
               <span className="fieldLabel">Commands</span>
-              {Array.from({ length: commandCount }, (_, index) => (
-                <input key={index} name="commands" placeholder={index === 0 ? "say Restarting in 5 minutes" : "save-all"} required={index === 0} />
+              {commandIds.map((id, index) => (
+                <div key={id} className="commandInputRow">
+                  <input name="commands" placeholder={index === 0 ? "say Restarting in 5 minutes" : "save-all"} required={index === 0} />
+                  {index > 0 && (
+                    <button
+                      type="button"
+                      className="iconDangerButton"
+                      onClick={() => setCommandIds((ids) => ids.filter((candidate) => candidate !== id))}
+                      aria-label="Remove command"
+                    >
+                      X
+                    </button>
+                  )}
+                </div>
               ))}
-              <button type="button" className="secondaryButton" onClick={() => setCommandCount((count) => count + 1)}>
+              <button type="button" className="secondaryButton" onClick={() => setCommandIds((ids) => [...ids, crypto.randomUUID()])}>
                 + Additional Command
               </button>
             </div>
@@ -1501,9 +1537,19 @@ function AttachForm({
     { value: "eclipse-temurin:17-jre", label: "Java 17 runtime" },
     { value: "eclipse-temurin:25-jre", label: "Java 25 runtime" }
   ];
+  const defaultMinecraftVersion = versions.game[0]?.version ?? "1.21.4";
+  const [minecraftVersion, setMinecraftVersion] = useState(defaultMinecraftVersion);
+  const [dockerImage, setDockerImage] = useState(defaultDockerImageForMinecraftVersion(defaultMinecraftVersion));
   const [serverPort, setServerPort] = useState(String(defaultServerPort));
   const [javaArgs, setJavaArgs] = useState(memoryArgs(4));
   const serverPortValid = isValidServerPort(serverPort);
+
+  useEffect(() => {
+    const nextVersion = versions.game[0]?.version;
+    if (!nextVersion) return;
+    setMinecraftVersion((current) => current === "1.21.4" ? nextVersion : current || nextVersion);
+    setDockerImage(defaultDockerImageForMinecraftVersion(nextVersion));
+  }, [versions.game]);
 
   return (
     <form onSubmit={onSubmit} className="attachForm">
@@ -1514,7 +1560,15 @@ function AttachForm({
       </label>
       <label>
         Minecraft version
-        <select name="minecraftVersion" required defaultValue={versions.game[0]?.version ?? "1.21.4"}>
+        <select
+          name="minecraftVersion"
+          required
+          value={minecraftVersion}
+          onChange={(event) => {
+            setMinecraftVersion(event.target.value);
+            setDockerImage(defaultDockerImageForMinecraftVersion(event.target.value));
+          }}
+        >
           {versions.game.length ? versions.game.map((version) => (
             <option key={version.version} value={version.version}>{version.version}</option>
           )) : <option value="1.21.4">1.21.4</option>}
@@ -1587,7 +1641,7 @@ function AttachForm({
         </label>
         <label>
           Docker runtime image
-          <select name="dockerImage" defaultValue="eclipse-temurin:21-jre">
+          <select name="dockerImage" value={dockerImage} onChange={(event) => setDockerImage(event.target.value)}>
             {runtimeImages.map((image) => (
               <option key={image.value} value={image.value}>{image.label}</option>
             ))}
