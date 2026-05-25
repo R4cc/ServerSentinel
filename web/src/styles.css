@@ -145,6 +145,12 @@ textarea {
   line-height: 1.5;
 }
 
+textarea.javaArgsInput {
+  min-height: 96px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 h1,
 h2,
 p {
@@ -1250,6 +1256,110 @@ code {
   font-weight: 800;
 }
 
+.schedulePage {
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  align-items: start;
+}
+
+.panelHeader a {
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.compactBanner {
+  margin-bottom: var(--space-3);
+  grid-template-columns: 1fr;
+  gap: var(--space-2);
+}
+
+.commandStack {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.fieldLabel {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.secondaryButton {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.scheduleList {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.scheduleRow {
+  border: var(--border-strong) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-3);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.scheduleRow.disabled {
+  background:
+    repeating-linear-gradient(45deg, rgb(0 0 0 / 0.04) 0 1px, transparent 1px 10px),
+    var(--surface-muted);
+}
+
+.scheduleMain,
+.scheduleMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.scheduleMain > div {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.scheduleMain strong {
+  font-size: 18px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: -0.02em;
+}
+
+.scheduleMain code {
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.scheduleRow ul {
+  margin: 0;
+  padding-left: 18px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.scheduleMeta {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  flex-wrap: wrap;
+}
+
+.compactEmpty {
+  max-width: none;
+  padding: var(--space-4);
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -1316,6 +1426,7 @@ code {
 
   .overviewPage,
   .filesPage,
+  .schedulePage,
   .settingsPage {
     grid-template-columns: 1fr;
   }

@@ -16,7 +16,7 @@ import { totalmem } from "node:os";
 const config = {
   configDir: resolve(process.env.SERVERSENTINEL_CONFIG_DIR ?? "/config"),
   serversDir: resolve(process.env.SERVERSENTINEL_SERVERS_DIR ?? "/data/servers"),
-  serversDockerVolume: process.env.SERVERSENTINEL_SERVERS_DOCKER_VOLUME ?? "",
+  serversDockerVolume: process.env.SERVERSENTINEL_SERVERS_DOCKER_VOLUME ?? "serversentinel-minecraft-servers",
   dockerSocket: process.env.DOCKER_SOCKET ?? "/var/run/docker.sock",
   port: Number(process.env.PORT ?? "8080")
 };
@@ -45,9 +45,24 @@ type AttachedServer = {
   dockerWorkingDir?: string;
   dockerPorts?: string;
   javaArgs?: string;
+  schedules?: ScheduledExecution[];
   serverType: "fabric";
   createdAt: string;
   updatedAt: string;
+};
+
+type ScheduledExecution = {
+  id: string;
+  name: string;
+  cron: string;
+  commands: string[];
+  onlyWhenNoPlayers: boolean;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastRunAt?: string;
+  lastStatus?: string;
+  lastMessage?: string;
 };
 
 type PublicServer = Omit<AttachedServer, "serverDir" | "dockerMountSource" | "dockerWorkingDir"> & {
@@ -63,6 +78,14 @@ type DockerExecCreate = {
 
 type DockerExecInspect = {
   ExitCode?: number | null;
+};
+
+type DockerContainerInspect = {
+  Id?: string;
+  State?: { Status?: DockerState; Running?: boolean };
+  Name?: string;
+  Config?: { Labels?: Record<string, string> };
+  Mounts?: Array<{ Type?: string; Name?: string; Source?: string; Destination?: string }>;
 };
 
 type CreateServerInput = {
@@ -110,6 +133,7 @@ function publicServer(server: AttachedServer): PublicServer {
     dockerImage: server.dockerImage,
     dockerPorts: server.dockerPorts,
     javaArgs: server.javaArgs,
+    schedules: server.schedules ?? [],
     serverType: server.serverType,
     createdAt: server.createdAt,
     updatedAt: server.updatedAt,
@@ -206,6 +230,84 @@ function isValidServerPort(port: string) {
   return value >= minServerPort && value <= maxServerPort;
 }
 
+function parseCronField(field: string, min: number, max: number) {
+  const values = new Set<number>();
+  for (const rawPart of field.split(",")) {
+    const part = rawPart.trim();
+    if (!part) return null;
+    const [rangePart, stepPart] = part.split("/", 2);
+    const step = stepPart === undefined ? 1 : Number(stepPart);
+    if (!Number.isInteger(step) || step < 1) return null;
+
+    let start = min;
+    let end = max;
+    if (rangePart !== "*") {
+      if (rangePart.includes("-")) {
+        const [rawStart, rawEnd] = rangePart.split("-", 2).map(Number);
+        if (!Number.isInteger(rawStart) || !Number.isInteger(rawEnd)) return null;
+        start = rawStart;
+        end = rawEnd;
+      } else {
+        const exact = Number(rangePart);
+        if (!Number.isInteger(exact)) return null;
+        start = exact;
+        end = exact;
+      }
+    }
+
+    if (start < min || end > max || start > end) return null;
+    for (let value = start; value <= end; value += step) {
+      values.add(value);
+    }
+  }
+  return values;
+}
+
+function validateCron(cron: string) {
+  const parts = cron.trim().split(/\s+/);
+  if (parts.length !== 5) {
+    throw new Error("Cron schedule must use five fields: minute hour day month weekday");
+  }
+  const valid = [
+    parseCronField(parts[0], 0, 59),
+    parseCronField(parts[1], 0, 23),
+    parseCronField(parts[2], 1, 31),
+    parseCronField(parts[3], 1, 12),
+    parseCronField(parts[4], 0, 7)
+  ].every(Boolean);
+  if (!valid) {
+    throw new Error("Cron schedule contains an invalid field");
+  }
+}
+
+function cronMatches(cron: string, date: Date) {
+  validateCron(cron);
+  const [minute, hour, dayOfMonth, month, dayOfWeek] = cron.trim().split(/\s+/);
+  const normalizedDay = date.getDay();
+  const days = parseCronField(dayOfWeek, 0, 7)!;
+  return parseCronField(minute, 0, 59)!.has(date.getMinutes())
+    && parseCronField(hour, 0, 23)!.has(date.getHours())
+    && parseCronField(dayOfMonth, 1, 31)!.has(date.getDate())
+    && parseCronField(month, 1, 12)!.has(date.getMonth() + 1)
+    && (days.has(normalizedDay) || (normalizedDay === 0 && days.has(7)));
+}
+
+function sanitizeCommands(commands: unknown) {
+  if (!Array.isArray(commands)) {
+    throw new Error("At least one command is required");
+  }
+  const clean = commands
+    .map((command) => typeof command === "string" ? command.trim().replace(/^\//, "") : "")
+    .filter(Boolean);
+  if (!clean.length) {
+    throw new Error("At least one command is required");
+  }
+  if (clean.some((command) => /[\r\n]/.test(command))) {
+    throw new Error("Scheduled commands must be one line each");
+  }
+  return clean;
+}
+
 function dockerAvailable() {
   return existsSync(config.dockerSocket);
 }
@@ -225,7 +327,7 @@ function dockerErrorMessage(body: string, statusCode?: number) {
 }
 
 async function dockerRequest<T>(
-  method: "GET" | "POST",
+  method: "GET" | "POST" | "DELETE",
   path: string,
   expectedStatus: number | number[] = [200, 204, 304]
 ): Promise<T> {
@@ -360,6 +462,26 @@ function serverDockerWorkingDir(server: AttachedServer) {
   return "/data/server";
 }
 
+function serverDockerBindTarget(server: AttachedServer) {
+  return serverDockerWorkingDir(server).startsWith("/data/servers/") ? "/data/servers" : "/data/server";
+}
+
+function dockerContainerMountValid(server: AttachedServer, details: DockerContainerInspect) {
+  const expectedDestination = serverDockerBindTarget(server);
+  const expectedSource = serverDockerMountSource(server);
+  return Boolean(details.Mounts?.some((mount) => {
+    if (mount.Destination !== expectedDestination) return false;
+    if (expectedSource === config.serversDockerVolume) {
+      return mount.Type === "volume" && mount.Name === expectedSource;
+    }
+    return mount.Source === expectedSource || mount.Name === expectedSource;
+  }));
+}
+
+async function removeDockerContainer(server: AttachedServer) {
+  await dockerRequest("DELETE", `/containers/${encodeURIComponent(dockerContainerName(server))}?force=1`, 204);
+}
+
 function splitImage(image: string) {
   const slashIndex = image.lastIndexOf("/");
   const colonIndex = image.lastIndexOf(":");
@@ -401,7 +523,7 @@ function parseDockerPorts(ports?: string) {
 
 async function inspectDockerContainer(server: AttachedServer) {
   try {
-    return await dockerRequest<{ State?: { Status?: DockerState; Running?: boolean }; Name?: string }>(
+    return await dockerRequest<DockerContainerInspect>(
       "GET",
       `/containers/${encodeURIComponent(dockerContainerName(server))}/json`,
       200
@@ -418,7 +540,13 @@ async function inspectDockerContainer(server: AttachedServer) {
 async function ensureDockerContainer(server: AttachedServer) {
   const existing = await inspectDockerContainer(server);
   if (existing) {
-    return;
+    if (dockerContainerMountValid(server, existing)) {
+      return;
+    }
+    if (existing.Config?.Labels?.["serversentinel.managed"] !== "true") {
+      throw new Error(`Container ${dockerContainerName(server)} exists but is not managed by ServerSentinel and has an incompatible server volume mount`);
+    }
+    await removeDockerContainer(server);
   }
   if (!serverDockerMountSource(server) || !server.serverJar) {
     throw new Error("Docker managed control requires Docker mount source and server jar filename");
@@ -430,8 +558,7 @@ async function ensureDockerContainer(server: AttachedServer) {
   const javaArgs = server.javaArgs || "-Xms2G -Xmx4G";
   const command = `exec java ${javaArgs} -jar ${server.serverJar} nogui`;
   const workingDir = serverDockerWorkingDir(server);
-  const usesSharedServersVolume = workingDir.startsWith("/data/servers/");
-  const bindTarget = usesSharedServersVolume ? "/data/servers" : "/data/server";
+  const bindTarget = serverDockerBindTarget(server);
 
   await dockerJsonRequest(
     "POST",
@@ -448,8 +575,14 @@ async function ensureDockerContainer(server: AttachedServer) {
       Tty: false,
       ExposedPorts: exposedPorts,
       HostConfig: {
-        Binds: [`${serverDockerMountSource(server)}:${bindTarget}`],
-        PortBindings: portBindings
+        PortBindings: portBindings,
+        Mounts: [
+          {
+            Type: serverDockerMountSource(server) === config.serversDockerVolume ? "volume" : "bind",
+            Source: serverDockerMountSource(server),
+            Target: bindTarget
+          }
+        ]
       },
       Labels: {
         "serversentinel.server-id": server.id,
@@ -514,6 +647,15 @@ async function dockerAction(server: AttachedServer, action: "start" | "stop" | "
     await ensureDockerContainer(server);
   }
   await dockerRequest("POST", `/containers/${encodeURIComponent(dockerContainerName(server))}/${action}`, [200, 204, 304]);
+  if (action === "start" || action === "restart") {
+    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    const status = await dockerStatus(server);
+    if (!status.running) {
+      const logs = await dockerRecentLogs(server).catch(() => "");
+      throw new Error(`Minecraft runtime container exited after ${action}${logs.trim() ? `: ${logs.trim().slice(-800)}` : ""}`);
+    }
+    return status;
+  }
   return dockerStatus(server);
 }
 
@@ -596,6 +738,26 @@ async function readLatestServerLog(server: AttachedServer) {
 
   const start = Math.max(0, logStat.size - 128 * 1024);
   return (await readFileRange(logPath, start, logStat.size - 1)).toString("utf8");
+}
+
+function parseOnlinePlayerCount(logText: string) {
+  const matches = [...logText.matchAll(/There are\s+(\d+)\s+of a max(?:imum)? of\s+\d+\s+players online/gi)];
+  const latest = matches.at(-1);
+  return latest ? Number(latest[1]) : null;
+}
+
+async function onlinePlayerCount(server: AttachedServer) {
+  await sendDockerStdinCommand(server, "list");
+  await new Promise((resolve) => setTimeout(resolve, 1500));
+  const logs = await Promise.allSettled([
+    readLatestServerLog(server),
+    dockerRecentLogs(server)
+  ]);
+  const text = logs
+    .filter((result): result is PromiseFulfilledResult<string> => result.status === "fulfilled")
+    .map((result) => result.value)
+    .join("\n");
+  return parseOnlinePlayerCount(text);
 }
 
 function streamLatestServerLog(server: AttachedServer, client: Client) {
@@ -893,6 +1055,94 @@ function startProvisionJob(input: CreateServerInput) {
   return provisionJobs.get(id)!;
 }
 
+function scheduleFromBody(body: {
+  name?: string;
+  cron?: string;
+  commands?: unknown;
+  onlyWhenNoPlayers?: boolean;
+  enabled?: boolean;
+}, existing?: ScheduledExecution): ScheduledExecution {
+  const name = body.name?.trim();
+  const cron = body.cron?.trim();
+  if (!name) {
+    throw new Error("Schedule name is required");
+  }
+  if (!cron) {
+    throw new Error("Cron schedule is required");
+  }
+  validateCron(cron);
+  const now = new Date().toISOString();
+  return {
+    id: existing?.id ?? randomUUID(),
+    name,
+    cron,
+    commands: sanitizeCommands(body.commands),
+    onlyWhenNoPlayers: Boolean(body.onlyWhenNoPlayers),
+    enabled: body.enabled ?? existing?.enabled ?? true,
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+    lastRunAt: existing?.lastRunAt,
+    lastStatus: existing?.lastStatus,
+    lastMessage: existing?.lastMessage
+  };
+}
+
+async function runScheduledExecution(server: AttachedServer, schedule: ScheduledExecution) {
+  try {
+    if (schedule.onlyWhenNoPlayers) {
+      const count = await onlinePlayerCount(server);
+      if (count === null) {
+        return { status: "skipped", message: "Skipped because online player count could not be determined" };
+      }
+      if (count > 0) {
+        return { status: "skipped", message: `Skipped because ${count} player${count === 1 ? "" : "s"} are online` };
+      }
+    }
+
+    for (const command of schedule.commands) {
+      await sendDockerStdinCommand(server, command);
+    }
+    return { status: "success", message: `Sent ${schedule.commands.length} command${schedule.commands.length === 1 ? "" : "s"}` };
+  } catch (error) {
+    return { status: "failed", message: error instanceof Error ? error.message : "Scheduled execution failed" };
+  }
+}
+
+const runningSchedules = new Set<string>();
+
+async function tickSchedules() {
+  const now = new Date();
+  const runKey = now.toISOString().slice(0, 16);
+  const servers = await readServers();
+  let changed = false;
+
+  for (const server of servers) {
+    for (const schedule of server.schedules ?? []) {
+      if (!schedule.enabled) continue;
+      const key = `${server.id}:${schedule.id}:${runKey}`;
+      if (runningSchedules.has(key) || schedule.lastRunAt?.startsWith(runKey)) continue;
+      try {
+        if (!cronMatches(schedule.cron, now)) continue;
+      } catch {
+        continue;
+      }
+
+      runningSchedules.add(key);
+      const result = await runScheduledExecution(server, schedule);
+      schedule.lastRunAt = new Date().toISOString();
+      schedule.lastStatus = result.status;
+      schedule.lastMessage = result.message;
+      schedule.updatedAt = schedule.lastRunAt;
+      runningSchedules.delete(key);
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    await writeServers(servers);
+  }
+}
+
 const app = Fastify({ logger: true });
 await app.register(websocket);
 
@@ -1079,6 +1329,60 @@ app.post<{ Params: { id: string }; Body: { command?: string } }>("/api/servers/:
   return sendDockerStdinCommand(server, request.body.command ?? "");
 });
 
+app.get<{ Params: { id: string } }>("/api/servers/:id/schedules", async (request) => {
+  const server = await getServer(request.params.id);
+  return { schedules: server.schedules ?? [] };
+});
+
+app.post<{
+  Params: { id: string };
+  Body: { name?: string; cron?: string; commands?: unknown; onlyWhenNoPlayers?: boolean; enabled?: boolean };
+}>("/api/servers/:id/schedules", async (request) => {
+  const servers = await readServers();
+  const index = servers.findIndex((candidate) => candidate.id === request.params.id);
+  if (index === -1) {
+    throw new Error("Server not found");
+  }
+  const schedule = scheduleFromBody(request.body);
+  servers[index].schedules = [...(servers[index].schedules ?? []), schedule];
+  servers[index].updatedAt = new Date().toISOString();
+  await writeServers(servers);
+  return schedule;
+});
+
+app.put<{
+  Params: { id: string; scheduleId: string };
+  Body: { name?: string; cron?: string; commands?: unknown; onlyWhenNoPlayers?: boolean; enabled?: boolean };
+}>("/api/servers/:id/schedules/:scheduleId", async (request) => {
+  const servers = await readServers();
+  const serverIndex = servers.findIndex((candidate) => candidate.id === request.params.id);
+  if (serverIndex === -1) {
+    throw new Error("Server not found");
+  }
+  const schedules = servers[serverIndex].schedules ?? [];
+  const scheduleIndex = schedules.findIndex((candidate) => candidate.id === request.params.scheduleId);
+  if (scheduleIndex === -1) {
+    throw new Error("Schedule not found");
+  }
+  schedules[scheduleIndex] = scheduleFromBody(request.body, schedules[scheduleIndex]);
+  servers[serverIndex].schedules = schedules;
+  servers[serverIndex].updatedAt = new Date().toISOString();
+  await writeServers(servers);
+  return schedules[scheduleIndex];
+});
+
+app.delete<{ Params: { id: string; scheduleId: string } }>("/api/servers/:id/schedules/:scheduleId", async (request) => {
+  const servers = await readServers();
+  const serverIndex = servers.findIndex((candidate) => candidate.id === request.params.id);
+  if (serverIndex === -1) {
+    throw new Error("Server not found");
+  }
+  servers[serverIndex].schedules = (servers[serverIndex].schedules ?? []).filter((schedule) => schedule.id !== request.params.scheduleId);
+  servers[serverIndex].updatedAt = new Date().toISOString();
+  await writeServers(servers);
+  return { ok: true };
+});
+
 app.get("/ws/console", { websocket: true }, async (socket, request) => {
   const client = socket as unknown as Client;
   const url = new URL(request.url, "http://localhost");
@@ -1257,5 +1561,9 @@ app.setErrorHandler((error, _request, reply) => {
   app.log.error(error);
   reply.code(400).send({ error: error instanceof Error ? error.message : "Request failed" });
 });
+
+setInterval(() => {
+  void tickSchedules().catch((error: unknown) => app.log.error(error));
+}, 30_000).unref();
 
 await app.listen({ host: "0.0.0.0", port: config.port });

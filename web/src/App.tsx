@@ -13,8 +13,23 @@ type AttachedServer = {
   dockerImage?: string;
   dockerPorts?: string;
   javaArgs?: string;
+  schedules?: ScheduledExecution[];
   serverType: "fabric";
   hasDockerContainer: boolean;
+};
+
+type ScheduledExecution = {
+  id: string;
+  name: string;
+  cron: string;
+  commands: string[];
+  onlyWhenNoPlayers: boolean;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastRunAt?: string;
+  lastStatus?: string;
+  lastMessage?: string;
 };
 
 type AppState = {
@@ -192,6 +207,14 @@ function memoryArgs(memoryGb: number) {
   return `-Xms${Math.max(1, Math.floor(memoryGb / 2))}G -Xmx${memoryGb}G`;
 }
 
+function replaceMemoryArgs(javaArgs: string, memoryGb: number) {
+  const xms = `-Xms${Math.max(1, Math.floor(memoryGb / 2))}G`;
+  const xmx = `-Xmx${memoryGb}G`;
+  const withoutXms = javaArgs.replace(/(^|\s)-Xms\S+/g, "").trim();
+  const withoutMemory = withoutXms.replace(/(^|\s)-Xmx\S+/g, "").trim();
+  return [xms, xmx, withoutMemory].filter(Boolean).join(" ");
+}
+
 function isValidServerPort(port: string) {
   if (!/^\d+$/.test(port)) return false;
   const value = Number(port);
@@ -270,7 +293,7 @@ export default function App() {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [provisionJob, setProvisionJob] = useState<ProvisionJob | null>(null);
   const [activePage, setActivePage] = useState<ActivePage>("server");
-  const [activeTab, setActiveTab] = useState<"overview" | "files" | "mods" | "settings">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "files" | "mods" | "schedule" | "settings">("overview");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [themePreference, setThemePreference] = useState<ThemePreference>(() => readThemePreference());
   const [systemDark, setSystemDark] = useState(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false);
@@ -482,13 +505,14 @@ export default function App() {
 
   async function updateModrinthKey(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const form = new FormData(event.currentTarget);
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
     try {
       await api("/api/settings/modrinth", {
         method: "PUT",
         body: JSON.stringify({ modrinthApiKey: form.get("modrinthApiKey") })
       });
-      event.currentTarget.reset();
+      formElement.reset();
       notify("success", "Modrinth API key saved");
       await refreshApp();
     } catch (error) {
@@ -636,6 +660,66 @@ export default function App() {
       setNotice(`Installed ${title} ${result.version} as ${result.filename}`);
       notify("success", `Installed ${title}`);
       await loadFiles(activeServer.id, "/mods");
+    } catch (error) {
+      setNotice((error as Error).message);
+      notify("error", (error as Error).message);
+    }
+  }
+
+  async function createSchedule(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isProvisioning || !activeServer) return;
+    setNotice("");
+    const formElement = event.currentTarget;
+    const form = new FormData(formElement);
+    try {
+      await api<ScheduledExecution>(`/api/servers/${activeServer.id}/schedules`, {
+        method: "POST",
+        body: JSON.stringify({
+          name: form.get("name"),
+          cron: form.get("cron"),
+          commands: form.getAll("commands"),
+          onlyWhenNoPlayers: form.get("onlyWhenNoPlayers") === "on",
+          enabled: form.get("enabled") === "on"
+        })
+      });
+      formElement.reset();
+      notify("success", "Scheduled execution created");
+      await refreshApp();
+    } catch (error) {
+      setNotice((error as Error).message);
+      notify("error", (error as Error).message);
+    }
+  }
+
+  async function updateSchedule(schedule: ScheduledExecution, patch: Partial<ScheduledExecution>) {
+    if (isProvisioning || !activeServer) return;
+    try {
+      const next = { ...schedule, ...patch };
+      await api<ScheduledExecution>(`/api/servers/${activeServer.id}/schedules/${schedule.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          name: next.name,
+          cron: next.cron,
+          commands: next.commands,
+          onlyWhenNoPlayers: next.onlyWhenNoPlayers,
+          enabled: next.enabled
+        })
+      });
+      notify("success", next.enabled ? "Schedule enabled" : "Schedule disabled");
+      await refreshApp();
+    } catch (error) {
+      setNotice((error as Error).message);
+      notify("error", (error as Error).message);
+    }
+  }
+
+  async function deleteSchedule(schedule: ScheduledExecution) {
+    if (isProvisioning || !activeServer) return;
+    try {
+      await api(`/api/servers/${activeServer.id}/schedules/${schedule.id}`, { method: "DELETE" });
+      notify("success", `Deleted ${schedule.name}`);
+      await refreshApp();
     } catch (error) {
       setNotice((error as Error).message);
       notify("error", (error as Error).message);
@@ -859,6 +943,7 @@ export default function App() {
               <button className={activeTab === "overview" ? "active" : ""} onClick={() => setActiveTab("overview")} disabled={isProvisioning}>Overview</button>
               <button className={activeTab === "files" ? "active" : ""} onClick={() => setActiveTab("files")} disabled={isProvisioning}>Files</button>
               <button className={activeTab === "mods" ? "active" : ""} onClick={() => setActiveTab("mods")} disabled={isProvisioning}>Mods</button>
+              <button className={activeTab === "schedule" ? "active" : ""} onClick={() => setActiveTab("schedule")} disabled={isProvisioning}>Scheduling</button>
               <button className={activeTab === "settings" ? "active" : ""} onClick={() => setActiveTab("settings")} disabled={isProvisioning}>Server Settings</button>
             </nav>
 
@@ -1022,6 +1107,17 @@ export default function App() {
               </section>
             )}
 
+            {activeTab === "schedule" && (
+              <SchedulePage
+                schedules={activeServer.schedules ?? []}
+                onCreate={createSchedule}
+                onToggle={(schedule) => updateSchedule(schedule, { enabled: !schedule.enabled })}
+                onDelete={deleteSchedule}
+                disabled={isProvisioning}
+                commandInputMessage={status?.commandInputAvailable ? "" : status?.commandInputMessage || "Scheduled commands need Docker command input when they run."}
+              />
+            )}
+
             {activeTab === "settings" && (
               <section className="tabPage settingsPage">
                 <section className="panel settingsPanel">
@@ -1031,12 +1127,8 @@ export default function App() {
                     <dd>Fabric</dd>
                     <dt>Jar metadata</dt>
                     <dd>{activeServer.serverJar || "Not set"}</dd>
-                    <dt>Docker socket</dt>
-                    <dd>{appState.dockerSocketMounted ? "Mounted" : "Not mounted"}</dd>
                     <dt>Storage</dt>
                     <dd>{activeServer.storageName || "Not set"}</dd>
-                    <dt>Java args</dt>
-                    <dd>{activeServer.javaArgs || "-Xms2G -Xmx4G"}</dd>
                     <dt>Ports</dt>
                     <dd>{activeServer.dockerPorts || "25565:25565/tcp"}</dd>
                     <dt>Log file</dt>
@@ -1099,12 +1191,123 @@ function ModrinthKeyForm({
   );
 }
 
+function SchedulePage({
+  schedules,
+  onCreate,
+  onToggle,
+  onDelete,
+  disabled,
+  commandInputMessage
+}: {
+  schedules: ScheduledExecution[];
+  onCreate: (event: FormEvent<HTMLFormElement>) => void;
+  onToggle: (schedule: ScheduledExecution) => void;
+  onDelete: (schedule: ScheduledExecution) => void;
+  disabled: boolean;
+  commandInputMessage: string;
+}) {
+  const [commandCount, setCommandCount] = useState(1);
+
+  return (
+    <section className="tabPage schedulePage">
+      <section className="panel scheduleCreatePanel">
+        <div className="panelHeader">
+          <h2>New Scheduled Execution</h2>
+          <a href="https://crontab.guru/" target="_blank" rel="noreferrer">Cron Guru</a>
+        </div>
+        {commandInputMessage && (
+          <section className="systemBanner warning compactBanner">
+            <strong>Scheduling is limited.</strong>
+            <span>{commandInputMessage}</span>
+          </section>
+        )}
+        <form onSubmit={onCreate} className="attachForm scheduleForm">
+          <fieldset disabled={disabled}>
+            <label>
+              Name
+              <input name="name" placeholder="Nightly maintenance" required />
+            </label>
+            <label>
+              Cron schedule
+              <input name="cron" placeholder="0 4 * * *" required />
+            </label>
+            <div className="commandStack">
+              <span className="fieldLabel">Commands</span>
+              {Array.from({ length: commandCount }, (_, index) => (
+                <input key={index} name="commands" placeholder={index === 0 ? "say Restarting in 5 minutes" : "save-all"} required={index === 0} />
+              ))}
+              <button type="button" className="secondaryButton" onClick={() => setCommandCount((count) => count + 1)}>
+                + Additional Command
+              </button>
+            </div>
+            <label className="checkLine">
+              <input name="onlyWhenNoPlayers" type="checkbox" />
+              Only run when no players are online
+            </label>
+            <label className="checkLine">
+              <input name="enabled" type="checkbox" defaultChecked />
+              Enabled
+            </label>
+            <button>Create scheduled execution</button>
+          </fieldset>
+        </form>
+      </section>
+
+      <section className="panel scheduleListPanel">
+        <div className="panelHeader">
+          <h2>Scheduled Executions</h2>
+          <span className="muted">{schedules.length} configured</span>
+        </div>
+        <div className="scheduleList">
+          {schedules.length ? schedules.map((schedule) => (
+            <article key={schedule.id} className={`scheduleRow ${schedule.enabled ? "enabled" : "disabled"}`}>
+              <div className="scheduleMain">
+                <div>
+                  <strong>{schedule.name}</strong>
+                  <code>{schedule.cron}</code>
+                </div>
+                <span className={`runtimeBadge ${schedule.enabled ? "running" : "neutral"}`}>
+                  {schedule.enabled ? "Enabled" : "Disabled"}
+                </span>
+              </div>
+              <ul>
+                {schedule.commands.map((command, index) => <li key={`${command}-${index}`}>{command}</li>)}
+              </ul>
+              <div className="scheduleMeta">
+                <span>{schedule.onlyWhenNoPlayers ? "Runs only with no players online" : "Runs regardless of player count"}</span>
+                <span>{schedule.lastRunAt ? `Last ${schedule.lastStatus}: ${schedule.lastMessage || "No message"}` : "Never run"}</span>
+              </div>
+              <div className="buttonRow">
+                <button type="button" onClick={() => onToggle(schedule)} disabled={disabled}>
+                  {schedule.enabled ? "Disable" : "Enable"}
+                </button>
+                <button type="button" className="dangerButton" onClick={() => onDelete(schedule)} disabled={disabled}>
+                  Delete
+                </button>
+              </div>
+            </article>
+          )) : (
+            <div className="emptyState compactEmpty">
+              <h2>No Schedules</h2>
+              <p>Create one scheduled execution with one or more console commands.</p>
+            </div>
+          )}
+        </div>
+      </section>
+    </section>
+  );
+}
+
 function MemorySelector({
   totalMemory,
-  initialMemoryGb = 4
+  initialMemoryGb = 4,
+  javaArgs,
+  onJavaArgsChange
 }: {
   totalMemory: number;
   initialMemoryGb?: number;
+  javaArgs: string;
+  onJavaArgsChange: (value: string) => void;
 }) {
   const totalRamGb = totalMemoryGb(totalMemory);
   const [memoryGb, setMemoryGb] = useState(() => Math.min(Math.max(1, initialMemoryGb), totalRamGb));
@@ -1115,7 +1318,9 @@ function MemorySelector({
 
   function updateMemory(value: number) {
     if (!Number.isFinite(value)) return;
-    setMemoryGb(Math.min(Math.max(1, Math.round(value)), totalRamGb));
+    const nextMemoryGb = Math.min(Math.max(1, Math.round(value)), totalRamGb);
+    setMemoryGb(nextMemoryGb);
+    onJavaArgsChange(replaceMemoryArgs(javaArgs, nextMemoryGb));
   }
 
   return (
@@ -1146,7 +1351,6 @@ function MemorySelector({
           <span className="unit">GB</span>
         </div>
       </div>
-      <input type="hidden" name="javaArgs" value={memoryArgs(memoryGb)} />
       <p className="safelyAllocateTip">
         {memoryGb > totalRamGb * 0.8 ? (
           <span className="warn">Allocating over 80% of RAM may cause host instability.</span>
@@ -1171,6 +1375,8 @@ function ServerEditForm({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   disabled?: boolean;
 }) {
+  const [javaArgs, setJavaArgs] = useState(server.javaArgs || memoryArgs(parseMaxMemoryGb(server.javaArgs)));
+
   return (
     <form onSubmit={onSubmit} className="attachForm">
       <fieldset disabled={disabled}>
@@ -1204,7 +1410,23 @@ function ServerEditForm({
           ))}
         </select>
       </label>
-      <MemorySelector totalMemory={totalMemory} initialMemoryGb={parseMaxMemoryGb(server.javaArgs)} />
+      <MemorySelector
+        totalMemory={totalMemory}
+        initialMemoryGb={parseMaxMemoryGb(javaArgs)}
+        javaArgs={javaArgs}
+        onJavaArgsChange={setJavaArgs}
+      />
+      <label>
+        Java arguments
+        <textarea
+          className="javaArgsInput"
+          name="javaArgs"
+          value={javaArgs}
+          onChange={(event) => setJavaArgs(event.target.value)}
+          rows={4}
+          spellCheck={false}
+        />
+      </label>
       <label>
         Docker runtime image
         <select name="dockerImage" defaultValue={server.dockerImage || "eclipse-temurin:21-jre"}>
@@ -1280,6 +1502,7 @@ function AttachForm({
     { value: "eclipse-temurin:25-jre", label: "Java 25 runtime" }
   ];
   const [serverPort, setServerPort] = useState(String(defaultServerPort));
+  const [javaArgs, setJavaArgs] = useState(memoryArgs(4));
   const serverPortValid = isValidServerPort(serverPort);
 
   return (
@@ -1297,7 +1520,6 @@ function AttachForm({
           )) : <option value="1.21.4">1.21.4</option>}
         </select>
       </label>
-      <MemorySelector totalMemory={totalMemory} />
       <label>
         Server port
         <input
@@ -1320,6 +1542,23 @@ function AttachForm({
       </label>
       <details className="advanced">
         <summary>Advanced settings</summary>
+        <MemorySelector
+          totalMemory={totalMemory}
+          initialMemoryGb={parseMaxMemoryGb(javaArgs)}
+          javaArgs={javaArgs}
+          onJavaArgsChange={setJavaArgs}
+        />
+        <label>
+          Java arguments
+          <textarea
+            className="javaArgsInput"
+            name="javaArgs"
+            value={javaArgs}
+            onChange={(event) => setJavaArgs(event.target.value)}
+            rows={4}
+            spellCheck={false}
+          />
+        </label>
         <label>
           Fabric loader version
           <select name="loaderVersion" defaultValue="">
