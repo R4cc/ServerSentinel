@@ -94,6 +94,14 @@ type ModrinthHit = {
   icon_url?: string;
 };
 
+type InstalledMod = {
+  filename: string;
+  displayName: string;
+  enabled: boolean;
+  size: number;
+  modifiedAt: string;
+};
+
 type FabricVersions = {
   game: Array<{ version: string; stable: boolean }>;
   loader: Array<{ version: string; stable: boolean }>;
@@ -312,8 +320,9 @@ export default function App() {
   const [editorText, setEditorText] = useState("");
   const [dirty, setDirty] = useState(false);
   const [query, setQuery] = useState("");
-  const [gameVersion, setGameVersion] = useState("1.21.4");
-  const [mods, setMods] = useState<ModrinthHit[]>([]);
+  const [modSearchResults, setModSearchResults] = useState<ModrinthHit[]>([]);
+  const [installedMods, setInstalledMods] = useState<InstalledMod[]>([]);
+  const [modsView, setModsView] = useState<"manager" | "search">("manager");
   const [resourceSamples, setResourceSamples] = useState<ResourceSample[]>([]);
   const [commandInput, setCommandInput] = useState("");
   const [commandInputFocused, setCommandInputFocused] = useState(false);
@@ -336,6 +345,7 @@ export default function App() {
   const consoleRef = useRef<HTMLDivElement>(null);
   const darkMode = themePreference === "dark" || (themePreference === "system" && systemDark);
   const isProvisioning = provisionJob?.status === "running";
+  const modsLocked = isProvisioning || !status || Boolean(status.docker.running);
 
   const activeServer = useMemo(
     () => appState.servers.find((server) => server.id === activeServerId) ?? appState.servers[0],
@@ -368,8 +378,11 @@ export default function App() {
     setEditorText("");
     setDirty(false);
     setResourceSamples([]);
+    setModSearchResults([]);
+    setModsView("manager");
     refreshStatus(activeServer.id);
     loadFiles(activeServer.id, "/");
+    loadInstalledMods(activeServer.id);
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(`${protocol}//${window.location.host}/ws/console?serverId=${encodeURIComponent(activeServer.id)}`);
@@ -690,6 +703,17 @@ export default function App() {
     }
   }
 
+  async function loadInstalledMods(serverId: string) {
+    if (isProvisioning) return;
+    try {
+      const result = await api<{ mods: InstalledMod[] }>(`/api/servers/${serverId}/mods`);
+      setInstalledMods(result.mods);
+    } catch (error) {
+      setNotice((error as Error).message);
+      notify("error", (error as Error).message);
+    }
+  }
+
   async function openFile(path: string) {
     if (isProvisioning) return;
     if (!activeServer) return;
@@ -728,12 +752,13 @@ export default function App() {
   async function searchMods(event: FormEvent) {
     event.preventDefault();
     if (isProvisioning) return;
+    if (!activeServer) return;
     setNotice("");
     try {
       const result = await api<{ hits: ModrinthHit[] }>(
-        `/api/modrinth/search?query=${encodeURIComponent(query)}&gameVersion=${encodeURIComponent(gameVersion)}`
+        `/api/modrinth/search?query=${encodeURIComponent(query)}&serverId=${encodeURIComponent(activeServer.id)}`
       );
-      setMods(result.hits);
+      setModSearchResults(result.hits);
     } catch (error) {
       setNotice((error as Error).message);
       notify("error", (error as Error).message);
@@ -741,16 +766,51 @@ export default function App() {
   }
 
   async function installMod(projectId: string, title: string) {
-    if (isProvisioning) return;
+    if (modsLocked) return;
     if (!activeServer) return;
     setNotice("");
     try {
       const result = await api<{ filename: string; version: string }>("/api/modrinth/install", {
         method: "POST",
-        body: JSON.stringify({ serverId: activeServer.id, projectId, gameVersion })
+        body: JSON.stringify({ serverId: activeServer.id, projectId })
       });
       setNotice(`Installed ${title} ${result.version} as ${result.filename}`);
       notify("success", `Installed ${title}`);
+      setModsView("manager");
+      await loadInstalledMods(activeServer.id);
+      await loadFiles(activeServer.id, "/mods");
+    } catch (error) {
+      setNotice((error as Error).message);
+      notify("error", (error as Error).message);
+    }
+  }
+
+  async function setInstalledModEnabled(mod: InstalledMod, enabled: boolean) {
+    if (modsLocked || !activeServer) return;
+    setNotice("");
+    try {
+      await api(`/api/servers/${activeServer.id}/mods`, {
+        method: "PATCH",
+        body: JSON.stringify({ filename: mod.filename, enabled })
+      });
+      notify("success", `${enabled ? "Enabled" : "Disabled"} ${mod.displayName}`);
+      await loadInstalledMods(activeServer.id);
+      await loadFiles(activeServer.id, "/mods");
+    } catch (error) {
+      setNotice((error as Error).message);
+      notify("error", (error as Error).message);
+    }
+  }
+
+  async function removeInstalledMod(mod: InstalledMod) {
+    if (modsLocked || !activeServer) return;
+    setNotice("");
+    try {
+      await api(`/api/servers/${activeServer.id}/mods?filename=${encodeURIComponent(mod.filename)}`, {
+        method: "DELETE"
+      });
+      notify("success", `Removed ${mod.displayName}`);
+      await loadInstalledMods(activeServer.id);
       await loadFiles(activeServer.id, "/mods");
     } catch (error) {
       setNotice((error as Error).message);
@@ -1173,35 +1233,79 @@ export default function App() {
               <section className="tabPage">
                 <section className="panel modsPanel">
                   <div className="panelHeader">
-                    <h2>Modrinth</h2>
-                    <span className={appState.modrinthApiConfigured ? "ok" : "muted"}>
-                      API key {appState.modrinthApiConfigured ? "configured" : "not configured"}
+                    <h2>Mods</h2>
+                    <span className={modsLocked ? "warn" : "ok"}>
+                      {!status ? "Checking server state" : status.docker.running ? "Stop server to edit mods" : "Mod changes enabled"}
                     </span>
                   </div>
                   {!appState.modrinthApiConfigured && (
                     <section className="systemBanner accent">
                       <strong>Modrinth API key is not configured.</strong>
-                      <span>Mod search and installation are disabled. Add a key in Settings to enable this page.</span>
+                      <span>Installed mod management still works. Add a key in Settings to search and install new mods.</span>
                     </section>
                   )}
-                  <form onSubmit={searchMods} className="modSearch">
-                    <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Fabric mods" disabled={isProvisioning || !appState.modrinthApiConfigured} />
-                    <input value={gameVersion} onChange={(event) => setGameVersion(event.target.value)} placeholder="Minecraft version" disabled={isProvisioning || !appState.modrinthApiConfigured} />
-                    <button disabled={isProvisioning || !appState.modrinthApiConfigured || !query.trim() || !gameVersion.trim()}>Search</button>
-                  </form>
-                  <div className="mods">
-                    {mods.map((mod) => (
-                      <article key={mod.project_id} className="modRow">
-                        {mod.icon_url && <img src={mod.icon_url} alt="" />}
-                        <div>
-                          <strong>{mod.title}</strong>
-                          <p>{mod.description}</p>
-                          <small>{mod.downloads.toLocaleString()} downloads</small>
-                        </div>
-                        <button onClick={() => installMod(mod.project_id, mod.title)} disabled={isProvisioning || !appState.modrinthApiConfigured}>Install</button>
-                      </article>
-                    ))}
+                  <div className="modsToolbar">
+                    <div className="segmentedControl">
+                      <button className={modsView === "manager" ? "active" : ""} onClick={() => setModsView("manager")}>Installed</button>
+                      <button className={modsView === "search" ? "active" : ""} onClick={() => setModsView("search")} disabled={!appState.modrinthApiConfigured}>Search</button>
+                    </div>
+                    <span className="muted">Fabric {activeServer.loaderVersion || "loader unknown"} - Minecraft {activeServer.minecraftVersion || "version unknown"}</span>
                   </div>
+
+                  {modsView === "manager" && (
+                    <div className="mods">
+                      <button className="modRow addModRow" onClick={() => setModsView("search")} disabled={isProvisioning || !appState.modrinthApiConfigured}>
+                        <span className="addIcon">+</span>
+                        <div>
+                          <strong>Add mod</strong>
+                          <p>Search Modrinth for Fabric mods compatible with this server.</p>
+                        </div>
+                      </button>
+                      {installedMods.length === 0 && (
+                        <div className="emptyInline">No installed mods yet.</div>
+                      )}
+                      {installedMods.map((mod) => (
+                        <article key={mod.filename} className={`modRow ${mod.enabled ? "" : "disabled"}`}>
+                          <div className="modFileIcon">JAR</div>
+                          <div>
+                            <strong>{mod.displayName}</strong>
+                            <p>{mod.enabled ? "Enabled" : "Disabled"} - {formatBytes(mod.size)} - Modified {new Date(mod.modifiedAt).toLocaleString()}</p>
+                            <small>{mod.filename}</small>
+                          </div>
+                          <div className="modActions">
+                            <button onClick={() => setInstalledModEnabled(mod, !mod.enabled)} disabled={modsLocked}>
+                              {mod.enabled ? "Disable" : "Enable"}
+                            </button>
+                            <button className="dangerTextButton" onClick={() => removeInstalledMod(mod)} disabled={modsLocked}>
+                              Remove
+                            </button>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+
+                  {modsView === "search" && (
+                    <>
+                      <form onSubmit={searchMods} className="modSearch">
+                        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search compatible Fabric mods" disabled={isProvisioning || !appState.modrinthApiConfigured} />
+                        <button disabled={isProvisioning || !appState.modrinthApiConfigured || !query.trim()}>Search</button>
+                      </form>
+                      <div className="mods">
+                        {modSearchResults.map((mod) => (
+                          <article key={mod.project_id} className="modRow">
+                            {mod.icon_url ? <img src={mod.icon_url} alt="" /> : <div className="modFileIcon">MOD</div>}
+                            <div>
+                              <strong>{mod.title}</strong>
+                              <p>{mod.description}</p>
+                              <small>{mod.downloads.toLocaleString()} downloads</small>
+                            </div>
+                            <button onClick={() => installMod(mod.project_id, mod.title)} disabled={modsLocked || !appState.modrinthApiConfigured}>Install</button>
+                          </article>
+                        ))}
+                      </div>
+                    </>
+                  )}
                 </section>
               </section>
             )}

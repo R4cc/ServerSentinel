@@ -1369,6 +1369,36 @@ code {
   max-width: 1020px;
 }
 
+.modsToolbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-3);
+  align-items: center;
+  margin-bottom: var(--space-4);
+}
+
+.segmentedControl {
+  display: flex;
+  gap: var(--space-1);
+  border: var(--border-strong) solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-1);
+  background: var(--surface-muted);
+}
+
+.segmentedControl button {
+  min-height: 34px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.segmentedControl button.active {
+  background: var(--text);
+  color: var(--surface);
+}
+
 .fileRow {
   display: grid;
   grid-template-columns: 1fr auto;
@@ -1396,10 +1426,6 @@ code {
   flex: 1;
 }
 
-.modSearch input:nth-child(2) {
-  width: 160px;
-}
-
 .meta {
   display: grid;
   grid-template-columns: 120px 1fr;
@@ -1425,8 +1451,15 @@ code {
   background: var(--surface);
 }
 
-.modRow:hover {
+.modRow:hover,
+.addModRow:hover:not(:disabled) {
   background: var(--sentinel-accent-soft);
+}
+
+.modRow.disabled {
+  background:
+    repeating-linear-gradient(45deg, rgb(0 0 0 / 0.04) 0 1px, transparent 1px 10px),
+    var(--surface-muted);
 }
 
 .modRow img {
@@ -1437,6 +1470,35 @@ code {
   object-fit: cover;
 }
 
+.addModRow {
+  width: 100%;
+  min-height: 82px;
+  text-align: left;
+  color: var(--text);
+}
+
+.addModRow,
+.dangerTextButton {
+  background: var(--surface);
+}
+
+.addIcon,
+.modFileIcon {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border: var(--border-strong) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  color: var(--text);
+  font-weight: 900;
+}
+
+.addIcon {
+  font-size: 28px;
+}
+
 .modRow p {
   color: var(--text-muted);
   font-size: 13px;
@@ -1445,6 +1507,31 @@ code {
 
 .modRow small {
   color: var(--text-soft);
+  font-weight: 800;
+}
+
+.modActions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: end;
+  flex-wrap: wrap;
+}
+
+.dangerTextButton {
+  border-color: var(--sentinel-danger);
+  color: var(--sentinel-danger);
+}
+
+.dangerTextButton:hover:not(:disabled) {
+  background: var(--sentinel-danger);
+  border-color: var(--sentinel-danger);
+}
+
+.emptyInline {
+  border: var(--border-strong) dashed var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  color: var(--text-muted);
   font-weight: 800;
 }
 
@@ -1674,9 +1761,6 @@ code {
     max-width: none;
   }
 
-  .modSearch input:nth-child(2) {
-    width: 100%;
-  }
 }
 
 @media (max-width: 720px) {
@@ -1722,6 +1806,21 @@ code {
 
   .modRow button {
     grid-column: 1 / -1;
+  }
+
+  .modActions {
+    grid-column: 1 / -1;
+    justify-content: stretch;
+  }
+
+  .modActions button,
+  .modsToolbar,
+  .segmentedControl {
+    width: 100%;
+  }
+
+  .segmentedControl button {
+    flex: 1;
   }
 
   .console {

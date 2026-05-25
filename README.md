@@ -16,7 +16,7 @@ Without Docker socket access:
 - View and edit UTF-8 text files in the browser.
 - Read and stream each server's `logs/latest.log` file.
 - Search Modrinth using a server-side `MODRINTH_API_KEY`.
-- Install compatible Fabric `.jar` files into the server's `mods` directory.
+- Manage installed Fabric `.jar` files, enable/disable/remove mods while the server is stopped, and install compatible mods from Modrinth.
 
 With Docker socket access:
 
@@ -171,4 +171,4 @@ npm run build
 
 - No authentication. Do not expose this service directly to the public internet.
 - Server creation is Fabric-only.
-- No mod dependency/conflict resolver; installs the latest Modrinth version matching Fabric and the requested Minecraft version.
+- No mod dependency/conflict resolver; installs the latest Modrinth version matching Fabric and the selected Minecraft version.

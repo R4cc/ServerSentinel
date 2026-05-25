@@ -3,7 +3,7 @@ import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
 import { randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream, existsSync } from "node:fs";
-import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import http from "node:http";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
@@ -247,6 +247,14 @@ function toPublicPath(server: AttachedServer, absolutePath: string) {
 
 function safeModFilename(name: string) {
   return basename(name).replace(/[^a-zA-Z0-9._ -]/g, "_");
+}
+
+function safeInstalledModFilename(name?: string) {
+  const filename = basename(name ?? "").trim();
+  if (!filename || filename !== name || (!filename.endsWith(".jar") && !filename.endsWith(".jar.disabled"))) {
+    throw new Error("A valid mod filename is required");
+  }
+  return filename;
 }
 
 function isValidServerPort(port: string) {
@@ -1023,6 +1031,13 @@ async function downloadFabricServerJar(server: AttachedServer) {
   );
 }
 
+async function ensureServerStoppedForModChanges(server: AttachedServer) {
+  const status = await dockerStatus(server);
+  if (status.running) {
+    throw new Error("Stop the server before enabling, disabling, or removing mods");
+  }
+}
+
 async function createServerFiles(
   server: AttachedServer,
   acceptEula: boolean,
@@ -1580,16 +1595,70 @@ app.put<{ Params: { id: string }; Body: { path?: string; content?: string } }>("
   return { ok: true, path: toPublicPath(server, target) };
 });
 
-app.get<{ Querystring: { query?: string; gameVersion?: string } }>("/api/modrinth/search", async (request) => {
+app.get<{ Params: { id: string } }>("/api/servers/:id/mods", async (request) => {
+  const server = await getServer(request.params.id);
+  const modsDir = ensureInsideServer(server, "mods");
+  await mkdir(modsDir, { recursive: true });
+  const entries = await readdir(modsDir, { withFileTypes: true });
+  return {
+    mods: await Promise.all(
+      entries
+        .filter((entry) => entry.isFile() && (entry.name.endsWith(".jar") || entry.name.endsWith(".jar.disabled")))
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map(async (entry) => {
+          const modStat = await stat(join(modsDir, entry.name));
+          return {
+            filename: entry.name,
+            displayName: entry.name.replace(/\.jar\.disabled$/, ".jar"),
+            enabled: entry.name.endsWith(".jar"),
+            size: modStat.size,
+            modifiedAt: modStat.mtime.toISOString()
+          };
+        })
+    )
+  };
+});
+
+app.patch<{ Params: { id: string }; Body: { filename?: string; enabled?: boolean } }>("/api/servers/:id/mods", async (request) => {
+  const server = await getServer(request.params.id);
+  await ensureServerStoppedForModChanges(server);
+  const filename = safeInstalledModFilename(request.body.filename);
+  const enabled = Boolean(request.body.enabled);
+  const source = ensureInsideServer(server, join("mods", filename));
+  const targetName = enabled
+    ? filename.replace(/\.jar\.disabled$/, ".jar")
+    : filename.endsWith(".jar.disabled")
+      ? filename
+      : `${filename}.disabled`;
+  if (filename === targetName) {
+    return { ok: true, filename: targetName, enabled };
+  }
+  const target = ensureInsideServer(server, join("mods", safeInstalledModFilename(targetName)));
+  await rename(source, target);
+  return { ok: true, filename: basename(target), enabled };
+});
+
+app.delete<{ Params: { id: string }; Querystring: { filename?: string } }>("/api/servers/:id/mods", async (request) => {
+  const server = await getServer(request.params.id);
+  await ensureServerStoppedForModChanges(server);
+  const filename = safeInstalledModFilename(request.query.filename);
+  const target = ensureInsideServer(server, join("mods", filename));
+  await rm(target, { force: true });
+  return { ok: true, filename };
+});
+
+app.get<{ Querystring: { query?: string; serverId?: string } }>("/api/modrinth/search", async (request) => {
   const query = request.query.query?.trim();
   if (!query) {
     return { hits: [] };
   }
+  const server = await getServer(request.query.serverId);
+  if (!server.minecraftVersion || !server.loaderVersion) {
+    throw new Error("Minecraft and Fabric loader versions are required before searching compatible mods");
+  }
 
   const facets = [["project_type:mod"], ["categories:fabric"]];
-  if (request.query.gameVersion?.trim()) {
-    facets.push([`versions:${request.query.gameVersion.trim()}`]);
-  }
+  facets.push([`versions:${server.minecraftVersion}`]);
 
   const url = new URL("https://api.modrinth.com/v2/search");
   url.searchParams.set("query", query);
@@ -1599,17 +1668,17 @@ app.get<{ Querystring: { query?: string; gameVersion?: string } }>("/api/modrint
   return response.json();
 });
 
-app.post<{ Body: { serverId?: string; projectId?: string; gameVersion?: string } }>("/api/modrinth/install", async (request) => {
+app.post<{ Body: { serverId?: string; projectId?: string } }>("/api/modrinth/install", async (request) => {
   const server = await getServer(request.body.serverId);
+  await ensureServerStoppedForModChanges(server);
   const projectId = request.body.projectId?.trim();
-  const gameVersion = request.body.gameVersion?.trim();
-  if (!projectId || !gameVersion) {
-    throw new Error("projectId and gameVersion are required for compatible Fabric installs");
+  if (!projectId || !server.minecraftVersion || !server.loaderVersion) {
+    throw new Error("projectId, Minecraft version, and Fabric loader version are required for compatible Fabric installs");
   }
 
   const versionsUrl = new URL(`https://api.modrinth.com/v2/project/${encodeURIComponent(projectId)}/version`);
   versionsUrl.searchParams.set("loaders", JSON.stringify(["fabric"]));
-  versionsUrl.searchParams.set("game_versions", JSON.stringify([gameVersion]));
+  versionsUrl.searchParams.set("game_versions", JSON.stringify([server.minecraftVersion]));
   const versionsResponse = await modrinthFetch(versionsUrl.toString());
   const versions = (await versionsResponse.json()) as Array<{
     version_number: string;
