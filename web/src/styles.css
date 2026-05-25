@@ -501,14 +501,14 @@ code {
 }
 
 .runtimeControlButton.start {
-  border-color: var(--sentinel-success);
-  background: var(--sentinel-success);
+  border-color: #007a4d;
+  background: #007a4d;
   color: var(--swiss-white);
 }
 
 .runtimeControlButton.stop {
-  border-color: var(--sentinel-danger);
-  background: var(--sentinel-danger);
+  border-color: #c22727;
+  background: #c22727;
   color: var(--swiss-white);
 }
 
@@ -522,6 +522,17 @@ code {
   background: var(--text);
   border-color: var(--text);
   color: var(--surface);
+}
+
+.runtimeControlButton.start:disabled,
+.runtimeControlButton.stop:disabled {
+  color: var(--swiss-white);
+  opacity: 0.62;
+}
+
+.runtimeControlButton.start:hover:not(:disabled),
+.runtimeControlButton.stop:hover:not(:disabled) {
+  color: var(--swiss-white);
 }
 
 .controlGlyph {
@@ -1005,7 +1016,15 @@ code {
   gap: var(--space-4);
 }
 
-.overviewPage,
+.overviewPage {
+  grid-template-columns: minmax(320px, 420px) minmax(0, 1fr);
+  align-items: start;
+}
+
+.overviewPage .consolePanel {
+  grid-column: 1 / -1;
+}
+
 .filesPage {
   grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
   align-items: start;
@@ -1167,6 +1186,75 @@ code {
   font-weight: 900;
   letter-spacing: -0.02em;
   overflow-wrap: anywhere;
+}
+
+.resourcePanel {
+  min-width: 0;
+}
+
+.resourceStats {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}
+
+.resourceMetric {
+  border: var(--border-strong) solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  background: var(--surface-muted);
+  display: grid;
+  gap: var(--space-2);
+}
+
+.resourceMetric span,
+.resourceCharts span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.resourceMetric strong {
+  font-size: 22px;
+  font-weight: 900;
+  letter-spacing: -0.03em;
+}
+
+.resourceCharts {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.resourceCharts > div {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.resourceChart {
+  width: 100%;
+  height: 132px;
+  border: var(--border-strong) solid var(--border);
+  border-radius: var(--radius-md);
+  background:
+    linear-gradient(rgb(0 0 0 / 0.05) 1px, transparent 1px) 0 0 / 24px 24px,
+    linear-gradient(90deg, rgb(0 0 0 / 0.05) 1px, transparent 1px) 0 0 / 24px 24px,
+    var(--surface);
+}
+
+.resourceChart line {
+  stroke: var(--text-soft);
+  stroke-width: 1;
+}
+
+.resourceChart polyline {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .terminal {

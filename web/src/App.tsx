@@ -58,6 +58,19 @@ type ServerStatus = {
   commandInputMessage: string;
 };
 
+type ResourceStats = {
+  available: boolean;
+  running: boolean;
+  cpuPercent: number;
+  memoryUsageBytes: number;
+  memoryLimitBytes: number;
+  readAt: string;
+};
+
+type ResourceSample = ResourceStats & {
+  sampledAt: number;
+};
+
 type FileEntry = {
   name: string;
   path: string;
@@ -194,6 +207,11 @@ function formatBytes(value: number) {
   return `${(value / 1024 / 1024).toFixed(1)} MiB`;
 }
 
+function formatMegabytes(value: number) {
+  if (!value) return "0 MB";
+  return `${Math.round(value / 1024 / 1024).toLocaleString()} MB`;
+}
+
 function totalMemoryGb(totalMemory: number) {
   return Math.max(1, totalMemory ? Math.round(totalMemory / (1024 * 1024 * 1024)) : 16);
 }
@@ -233,13 +251,13 @@ function isValidServerPort(port: string) {
 }
 
 function runtimeLabel(status: ServerStatus | null, dockerSocketMounted: boolean) {
-  if (!status) return "Checking runtime";
+  if (!status) return "Checking container";
   if (!dockerSocketMounted) return "Docker socket not mounted";
-  if (!status.docker.configured) return "Runtime control not configured";
-  if (!status.docker.available) return status.docker.message || "Runtime unavailable";
-  if (status.docker.running) return "Runtime running";
-  if (status.docker.state && status.docker.state !== "unknown") return `Runtime ${status.docker.state}`;
-  return "Runtime status unavailable";
+  if (!status.docker.configured) return "Container control not configured";
+  if (!status.docker.available) return status.docker.message || "Container unavailable";
+  if (status.docker.running) return "Container running";
+  if (status.docker.state && status.docker.state !== "unknown") return `Container ${status.docker.state}`;
+  return "Container status unavailable";
 }
 
 function runtimeTone(status: ServerStatus | null, dockerSocketMounted: boolean) {
@@ -293,6 +311,7 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [gameVersion, setGameVersion] = useState("1.21.4");
   const [mods, setMods] = useState<ModrinthHit[]>([]);
+  const [resourceSamples, setResourceSamples] = useState<ResourceSample[]>([]);
   const [commandInput, setCommandInput] = useState("");
   const [commandInputFocused, setCommandInputFocused] = useState(false);
   const [commandHistory, setCommandHistory] = useState<string[]>(() => {
@@ -345,6 +364,7 @@ export default function App() {
     setSelectedPath("");
     setEditorText("");
     setDirty(false);
+    setResourceSamples([]);
     refreshStatus(activeServer.id);
     loadFiles(activeServer.id, "/");
 
@@ -389,6 +409,36 @@ export default function App() {
   useEffect(() => {
     window.localStorage.setItem("serversentinel-command-history", JSON.stringify(commandHistory.slice(-50)));
   }, [commandHistory]);
+
+  useEffect(() => {
+    if (!activeServer || activePage !== "server" || activeTab !== "overview") return;
+    let cancelled = false;
+    async function pollStats() {
+      try {
+        const stats = await api<ResourceStats>(`/api/servers/${activeServer!.id}/stats`);
+        if (cancelled) return;
+        setResourceSamples((current) => [...current.slice(-59), { ...stats, sampledAt: Date.now() }]);
+      } catch {
+        if (!cancelled) {
+          setResourceSamples((current) => [...current.slice(-59), {
+            available: false,
+            running: false,
+            cpuPercent: 0,
+            memoryUsageBytes: 0,
+            memoryLimitBytes: 0,
+            readAt: new Date().toISOString(),
+            sampledAt: Date.now()
+          }]);
+        }
+      }
+    }
+    void pollStats();
+    const interval = window.setInterval(() => void pollStats(), 5_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [activeServer?.id, activePage, activeTab]);
 
   function notify(type: Notice["type"], text: string) {
     const id = Date.now() + Math.random();
@@ -847,7 +897,7 @@ export default function App() {
         {!appState.dockerSocketMounted && (
           <section className="systemBanner warning">
             <strong>Docker integration is not connected.</strong>
-            <span>Server files, editing, and configured integrations still work. Runtime creation, status, controls, Docker logs, and console input are limited until the Docker socket is mounted.</span>
+            <span>Server files, editing, and configured integrations still work. Container creation, status, controls, Docker logs, and console input are limited until the Docker socket is mounted.</span>
           </section>
         )}
 
@@ -938,7 +988,7 @@ export default function App() {
               <div className="settingsGroupHeader">
                 <span>03</span>
                 <div>
-                  <h2>Runtime</h2>
+                  <h2>Container</h2>
                   <p>Host-level capabilities available to ServerSentinel.</p>
                 </div>
               </div>
@@ -995,7 +1045,7 @@ export default function App() {
               <section className="tabPage overviewPage">
                 <section className="panel controls">
                   <div className="panelHeader">
-                    <h2>Server Control</h2>
+                    <h2>Server Overview</h2>
                     <span className={`runtimeBadge ${runtimeTone(status, appState.dockerSocketMounted)}`}>
                       {runtimeLabel(status, appState.dockerSocketMounted)}
                     </span>
@@ -1014,11 +1064,13 @@ export default function App() {
                       <strong>{activeServer.loaderVersion || "Latest stable"}</strong>
                     </div>
                     <div className="summaryTile">
-                      <span>Control</span>
-                      <strong>{status?.controlAvailable ? "Start, stop, restart" : "File tools only"}</strong>
+                      <span>Container</span>
+                      <strong>{status?.docker.state && status.docker.state !== "unknown" ? status.docker.state : status?.controlAvailable ? "Ready" : "Unavailable"}</strong>
                     </div>
                   </div>
                 </section>
+
+                <ResourcePanel samples={resourceSamples} />
 
                 <section className="panel consolePanel">
                   <div className="panelHeader">
@@ -1222,7 +1274,7 @@ function RuntimeControls({
 }) {
   const disabled = isProvisioning || Boolean(busyAction) || !status?.controlAvailable;
   return (
-    <div className="runtimeControls" aria-label="Runtime controls">
+    <div className="runtimeControls" aria-label="Container controls">
       {(["start", "stop", "restart"] as const).map((action) => {
         const actionDisabled = disabled
           || (action === "start" && Boolean(status?.docker.running))
@@ -1241,6 +1293,71 @@ function RuntimeControls({
         );
       })}
     </div>
+  );
+}
+
+function MiniChart({
+  samples,
+  metric,
+  max
+}: {
+  samples: ResourceSample[];
+  metric: "cpu" | "memory";
+  max: number;
+}) {
+  const width = 360;
+  const height = 120;
+  const points = samples.map((sample, index) => {
+    const raw = metric === "cpu" ? sample.cpuPercent : sample.memoryUsageBytes;
+    const x = samples.length <= 1 ? 0 : (index / (samples.length - 1)) * width;
+    const y = height - (Math.min(raw, max) / Math.max(max, 1)) * height;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+
+  return (
+    <svg className="resourceChart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={`${metric} usage over time`}>
+      <line x1="0" y1={height - 1} x2={width} y2={height - 1} />
+      <line x1="0" y1="1" x2={width} y2="1" />
+      {points && <polyline points={points} />}
+    </svg>
+  );
+}
+
+function ResourcePanel({ samples }: { samples: ResourceSample[] }) {
+  const latest = samples.at(-1);
+  const cpu = latest?.cpuPercent ?? 0;
+  const memoryUsage = latest?.memoryUsageBytes ?? 0;
+  const memoryLimit = latest?.memoryLimitBytes ?? 0;
+  const memoryMax = Math.max(memoryLimit, ...samples.map((sample) => sample.memoryUsageBytes), 1);
+  const cpuMax = Math.max(100, ...samples.map((sample) => sample.cpuPercent), 1);
+
+  return (
+    <section className="panel resourcePanel">
+      <div className="panelHeader">
+        <h2>Resource Usage</h2>
+        <span className="muted">{latest?.running ? "Live Docker stats" : "Waiting for running container"}</span>
+      </div>
+      <div className="resourceStats">
+        <div className="resourceMetric">
+          <span>Memory</span>
+          <strong>{formatMegabytes(memoryUsage)} / {memoryLimit ? formatMegabytes(memoryLimit) : "unknown"}</strong>
+        </div>
+        <div className="resourceMetric">
+          <span>CPU</span>
+          <strong>{cpu.toFixed(1)}%</strong>
+        </div>
+      </div>
+      <div className="resourceCharts">
+        <div>
+          <span>Memory over time</span>
+          <MiniChart samples={samples} metric="memory" max={memoryMax} />
+        </div>
+        <div>
+          <span>CPU over time</span>
+          <MiniChart samples={samples} metric="cpu" max={cpuMax} />
+        </div>
+      </div>
+    </section>
   );
 }
 

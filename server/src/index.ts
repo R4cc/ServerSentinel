@@ -88,6 +88,20 @@ type DockerContainerInspect = {
   Mounts?: Array<{ Type?: string; Name?: string; Source?: string; Destination?: string }>;
 };
 
+type DockerStats = {
+  read?: string;
+  memory_stats?: { usage?: number; limit?: number };
+  cpu_stats?: {
+    online_cpus?: number;
+    cpu_usage?: { total_usage?: number };
+    system_cpu_usage?: number;
+  };
+  precpu_stats?: {
+    cpu_usage?: { total_usage?: number };
+    system_cpu_usage?: number;
+  };
+};
+
 type CreateServerInput = {
   displayName?: string;
   minecraftVersion?: string;
@@ -735,6 +749,42 @@ async function dockerRecentLogs(server: AttachedServer) {
     200
   );
   return stripDockerLogHeaders(response).toString("utf8");
+}
+
+async function dockerResourceStats(server: AttachedServer) {
+  if (!dockerControlConfigured(server)) {
+    throw new Error("Container stats are not configured for this server");
+  }
+  const status = await dockerStatus(server);
+  if (!status.running) {
+    return {
+      available: false,
+      running: false,
+      cpuPercent: 0,
+      memoryUsageBytes: 0,
+      memoryLimitBytes: 0,
+      readAt: new Date().toISOString()
+    };
+  }
+
+  const stats = await dockerRequest<DockerStats>(
+    "GET",
+    `/containers/${encodeURIComponent(dockerContainerName(server))}/stats?stream=false`,
+    200
+  );
+  const cpuDelta = (stats.cpu_stats?.cpu_usage?.total_usage ?? 0) - (stats.precpu_stats?.cpu_usage?.total_usage ?? 0);
+  const systemDelta = (stats.cpu_stats?.system_cpu_usage ?? 0) - (stats.precpu_stats?.system_cpu_usage ?? 0);
+  const onlineCpus = stats.cpu_stats?.online_cpus || 1;
+  const cpuPercent = systemDelta > 0 && cpuDelta > 0 ? (cpuDelta / systemDelta) * onlineCpus * 100 : 0;
+
+  return {
+    available: true,
+    running: true,
+    cpuPercent,
+    memoryUsageBytes: stats.memory_stats?.usage ?? 0,
+    memoryLimitBytes: stats.memory_stats?.limit ?? 0,
+    readAt: stats.read ?? new Date().toISOString()
+  };
 }
 
 function readFileRange(filePath: string, start: number, end: number) {
@@ -1433,6 +1483,10 @@ app.get<{ Params: { id: string } }>("/api/servers/:id/logs", async (request) => 
     return { text: await dockerRecentLogs(server), source: "docker" };
   }
   return { text: await readLatestServerLog(server), source: "logs/latest.log" };
+});
+
+app.get<{ Params: { id: string } }>("/api/servers/:id/stats", async (request) => {
+  return dockerResourceStats(await getServer(request.params.id));
 });
 
 app.get<{ Params: { id: string }; Querystring: { path?: string } }>("/api/servers/:id/files", async (request) => {
