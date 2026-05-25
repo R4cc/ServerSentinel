@@ -3,7 +3,7 @@ import websocket from "@fastify/websocket";
 import fastifyStatic from "@fastify/static";
 import { randomUUID } from "node:crypto";
 import { createReadStream, createWriteStream, existsSync } from "node:fs";
-import { mkdir, readdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import http from "node:http";
 import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
@@ -144,6 +144,15 @@ function ensureInsideServer(server: AttachedServer, userPath = ".") {
     throw new Error("Path escapes the registered server directory");
   }
   return target;
+}
+
+function ensureManagedServerDirectory(server: AttachedServer) {
+  const serversDir = resolve(config.serversDir);
+  const serverDir = resolve(server.serverDir);
+  if (serverDir !== serversDir && !serverDir.startsWith(serversDir + sep)) {
+    throw new Error("Server files can only be deleted when the directory is inside the managed servers directory");
+  }
+  return serverDir;
 }
 
 function toPublicPath(server: AttachedServer, absolutePath: string) {
@@ -846,6 +855,36 @@ app.put<{
   servers[index] = updated;
   await writeServers(servers);
   return publicServer(updated);
+});
+
+app.delete<{
+  Params: { id: string };
+  Body: {
+    confirmName?: string;
+    deleteFiles?: boolean;
+  };
+}>("/api/servers/:id", async (request) => {
+  const servers = await readServers();
+  const index = servers.findIndex((candidate) => candidate.id === request.params.id);
+  if (index === -1) {
+    throw new Error("Server not found");
+  }
+
+  const server = servers[index];
+  if (request.body.confirmName !== server.displayName) {
+    throw new Error(`Type "${server.displayName}" to confirm deletion`);
+  }
+
+  let deletedFiles = false;
+  if (request.body.deleteFiles) {
+    const directory = ensureManagedServerDirectory(server);
+    await rm(directory, { recursive: true, force: true });
+    deletedFiles = true;
+  }
+
+  servers.splice(index, 1);
+  await writeServers(servers);
+  return { ok: true, deletedFiles };
 });
 
 app.get<{ Params: { id: string } }>("/api/servers/:id/status", async (request) => {

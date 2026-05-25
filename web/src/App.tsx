@@ -76,6 +76,8 @@ type Notice = {
   text: string;
 };
 
+type ActivePage = "servers" | "server" | "settings";
+
 const emptyApp: AppState = {
   servers: [],
   modrinthApiConfigured: false,
@@ -138,7 +140,10 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [notices, setNotices] = useState<Notice[]>([]);
   const [showCreate, setShowCreate] = useState(false);
+  const [activePage, setActivePage] = useState<ActivePage>("server");
   const [activeTab, setActiveTab] = useState<"overview" | "files" | "mods" | "settings">("overview");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [darkMode, setDarkMode] = useState(() => window.localStorage.getItem("serversentinel-theme") !== "light");
   const consoleRef = useRef<HTMLDivElement>(null);
 
   const activeServer = useMemo(
@@ -188,6 +193,10 @@ export default function App() {
   useEffect(() => {
     consoleRef.current?.scrollTo({ top: consoleRef.current.scrollHeight });
   }, [logs]);
+
+  useEffect(() => {
+    window.localStorage.setItem("serversentinel-theme", darkMode ? "dark" : "light");
+  }, [darkMode]);
 
   function notify(type: Notice["type"], text: string) {
     const id = Date.now() + Math.random();
@@ -246,6 +255,7 @@ export default function App() {
       await refreshApp();
       setActiveServerId(server.id);
       setShowCreate(false);
+      setActivePage("server");
       notify("success", `Created ${server.displayName}`);
     } catch (error) {
       setNotice((error as Error).message);
@@ -391,258 +401,306 @@ export default function App() {
     }
   }
 
-  if (!appState.servers.length) {
-    return (
-      <main className="shell">
-        <Notifications notices={notices} />
-        <header className="topbar">
-          <div>
-            <h1>ServerSentinel</h1>
-            <p>Managed Fabric server controller</p>
-          </div>
-          <div className="pill stopped">No servers created</div>
-        </header>
-        {notice && <div className="notice">{notice}</div>}
-        <nav className="tabs">
-          <button className={activeTab === "overview" ? "active" : ""} onClick={() => setActiveTab("overview")}>Welcome</button>
-          <button className={activeTab === "settings" ? "active" : ""} onClick={() => setActiveTab("settings")}>Settings</button>
-        </nav>
-        {activeTab === "settings" ? (
-          <section className="tabPage settingsPage single">
-            <div className="panel settingsPanel">
-              <h2>Integrations</h2>
-              <ModrinthKeyForm onSubmit={updateModrinthKey} configured={appState.modrinthApiConfigured} />
-            </div>
-          </section>
-        ) : (
-          <section className="welcome single">
-            <div className="panel welcomePanel">
-              <h2>Welcome</h2>
-              <p>ServerSentinel creates Fabric server files and can run each server in a separate Docker runtime container.</p>
-              <div className="statusGrid">
-                <StatusItem label="Docker socket" ok={appState.dockerSocketMounted} good="Connected" bad="Not connected" />
-                <StatusItem label="Modrinth API" ok={appState.modrinthApiConfigured} good="Configured" bad="Not configured" />
-              </div>
-              <p className="muted">Modrinth credentials live on the Settings page and are never sent back to the browser.</p>
-              <button onClick={() => setShowCreate(true)}>Create Server</button>
-            </div>
-          </section>
-        )}
-        {showCreate && (
-          <section className="panel attachPanel">
-            <div className="panelHeader">
-              <h2>Create Fabric server</h2>
-              <button onClick={() => setShowCreate(false)}>Close</button>
-            </div>
-            <AttachForm onSubmit={attachServer} dockerSocketMounted={appState.dockerSocketMounted} versions={fabricVersions} />
-          </section>
-        )}
-      </main>
-    );
-  }
-
-  if (!activeServer) {
-    return (
-      <main className="shell">
-        <Notifications notices={notices} />
-        <header className="topbar">
-          <div>
-            <h1>ServerSentinel</h1>
-            <p>No active server selected.</p>
-          </div>
-        </header>
-      </main>
-    );
+  async function deleteServer(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!activeServer) return;
+    setNotice("");
+    const form = new FormData(event.currentTarget);
+    try {
+      const result = await api<{ ok: boolean; deletedFiles: boolean }>(`/api/servers/${activeServer.id}`, {
+        method: "DELETE",
+        body: JSON.stringify({
+          confirmName: form.get("confirmName"),
+          deleteFiles: form.get("deleteFiles") === "on"
+        })
+      });
+      notify("success", result.deletedFiles ? `Deleted ${activeServer.displayName} and its files` : `Removed ${activeServer.displayName}`);
+      setActiveServerId("");
+      setActiveTab("overview");
+      setActivePage("servers");
+      await refreshApp();
+    } catch (error) {
+      setNotice((error as Error).message);
+      notify("error", (error as Error).message);
+    }
   }
 
   return (
-    <main className="shell">
+    <main className={`appShell ${sidebarCollapsed ? "sidebarCollapsed" : ""} ${darkMode ? "themeDark" : "themeLight"}`}>
       <Notifications notices={notices} />
-      <header className="topbar">
-        <div>
-          <h1>ServerSentinel</h1>
-          <p>Managed Fabric server controller</p>
-        </div>
-      </header>
-
-      {notice && <div className="notice">{notice}</div>}
-
-      {showCreate && (
-        <section className="panel attachPanel">
-          <div className="panelHeader">
-            <h2>Create Fabric server</h2>
-            <button onClick={() => setShowCreate(false)}>Close</button>
-          </div>
-          <AttachForm onSubmit={attachServer} dockerSocketMounted={appState.dockerSocketMounted} versions={fabricVersions} />
-        </section>
-      )}
-
-      <section className="serverBar">
-        <div className="serverPicker">
-          <span className="eyebrow">Active server</span>
-          <div className="serverPickerRow">
-            <select value={activeServer?.id ?? ""} onChange={(event) => setActiveServerId(event.target.value)} aria-label="Active server">
-              {appState.servers.map((server) => (
-                <option key={server.id} value={server.id}>{server.displayName}</option>
-              ))}
-            </select>
-            <span className={`runtimeBadge ${runtimeTone(status, appState.dockerSocketMounted)}`}>
-              {runtimeLabel(status, appState.dockerSocketMounted)}
-            </span>
-          </div>
-          <span className="serverPath">{activeServer.directoryLabel}</span>
-        </div>
-        <div className="serverActions">
-          <button onClick={() => refreshStatus()}>Refresh</button>
-          <button onClick={() => setShowCreate((value) => !value)}>{showCreate ? "Hide create" : "New server"}</button>
-        </div>
-      </section>
-
-      <nav className="tabs">
-        <button className={activeTab === "overview" ? "active" : ""} onClick={() => setActiveTab("overview")}>Overview</button>
-        <button className={activeTab === "files" ? "active" : ""} onClick={() => setActiveTab("files")}>Files</button>
-        <button className={activeTab === "mods" ? "active" : ""} onClick={() => setActiveTab("mods")}>Mods</button>
-        <button className={activeTab === "settings" ? "active" : ""} onClick={() => setActiveTab("settings")}>Settings</button>
-      </nav>
-
-      {activeTab === "overview" && (
-        <section className="tabPage overviewPage">
-          <section className="panel controls">
-            <h2>Managed Server</h2>
-            <dl className="meta">
-              <dt>Directory</dt>
-              <dd>{activeServer.directoryLabel}</dd>
-              <dt>Version</dt>
-              <dd>{activeServer.minecraftVersion || "Manual / unknown"}</dd>
-              <dt>Fabric loader</dt>
-              <dd>{activeServer.loaderVersion || "Latest stable"}</dd>
-              <dt>Docker</dt>
-              <dd>{status?.docker.message || status?.docker.container || "Not configured"}</dd>
-              <dt>Runtime image</dt>
-              <dd>{activeServer.dockerImage || "eclipse-temurin:21-jre"}</dd>
-            </dl>
-            <div className="buttonRow">
-              <button onClick={() => runContainerAction("start")} disabled={!status?.controlAvailable || status.docker.running}>Start</button>
-              <button onClick={() => runContainerAction("stop")} disabled={!status?.controlAvailable || !status.docker.running}>Stop</button>
-              <button onClick={() => runContainerAction("restart")} disabled={!status?.controlAvailable}>Restart</button>
+      <aside className="sidebar">
+        <div className="brandBlock">
+          <div className="brandLockup">
+            <img className="brandLogo" src="/logo.png" alt="" />
+            <div>
+              <h1>ServerSentinel</h1>
+              <p>Fabric server control</p>
             </div>
-            <form onSubmit={sendCommand} className="commandLine">
-              <input placeholder="Live stdin commands are unavailable in this MVP" disabled />
-              <button disabled>Send</button>
-            </form>
-            <p className="muted">{status?.commandInputMessage}</p>
-          </section>
+          </div>
+          <button className="iconButton" onClick={() => setSidebarCollapsed((value) => !value)} aria-label="Toggle sidebar">
+            {sidebarCollapsed ? ">" : "<"}
+          </button>
+        </div>
+        <nav className="sideNav">
+          <button className={activePage === "servers" ? "active" : ""} onClick={() => setActivePage("servers")}>
+            <span>Servers</span>
+            <small>{appState.servers.length}</small>
+          </button>
+          <button className={activePage === "server" ? "active" : ""} onClick={() => setActivePage("server")} disabled={!activeServer}>
+            <span>Active Server</span>
+            <small>{activeServer?.displayName ?? "None"}</small>
+          </button>
+          <button className={activePage === "settings" ? "active" : ""} onClick={() => setActivePage("settings")}>
+            <span>General Settings</span>
+            <small>{appState.modrinthApiConfigured ? "Modrinth ready" : "Needs key"}</small>
+          </button>
+        </nav>
+        <div className="sidebarStatus">
+          <StatusItem label="Docker" ok={appState.dockerSocketMounted} good="Connected" bad="Not mounted" />
+          <StatusItem label="Modrinth" ok={appState.modrinthApiConfigured} good="Configured" bad="Not configured" />
+        </div>
+      </aside>
 
-          <section className="panel consolePanel">
-            <h2>Console Logs</h2>
-            <div className="console" ref={consoleRef}>
-              {logs.length ? logs.map((line, index) => <pre key={index}>{line}</pre>) : <span className="muted">No log output yet.</span>}
-            </div>
-            <p className="muted">
-              {status?.docker.configured && appState.dockerSocketMounted
-                ? "Streaming Docker container logs."
-                : "Streaming logs/latest.log when the server writes output."}
+      <section className="workspace">
+        <header className="workspaceHeader">
+          <div>
+            <h2>
+              {activePage === "servers" && "Servers"}
+              {activePage === "server" && (activeServer?.displayName ?? "No Server Selected")}
+              {activePage === "settings" && "General Settings"}
+            </h2>
+            <p>
+              {activePage === "servers" && "Create, select, and review managed Fabric servers."}
+              {activePage === "server" && (activeServer ? activeServer.directoryLabel : "Create a server to begin.")}
+              {activePage === "settings" && "App-wide preferences and integrations."}
             </p>
-          </section>
-        </section>
-      )}
+          </div>
+          <div className="workspaceActions">
+            {activePage === "servers" && <button onClick={() => setShowCreate((value) => !value)}>{showCreate ? "Hide create" : "New server"}</button>}
+            {activePage === "server" && activeServer && <button onClick={() => refreshStatus()}>Refresh</button>}
+          </div>
+        </header>
 
-      {activeTab === "files" && (
-        <section className="tabPage filesPage">
-          <section className="panel filesPanel">
-            <div className="panelHeader">
-              <h2>Files</h2>
-              <code>{listing.path}</code>
-            </div>
-            <div className="fileActions">
-              <button onClick={() => loadFiles(activeServer.id, parentPath(listing.path))} disabled={listing.path === "/"}>Up</button>
-              <button onClick={() => loadFiles(activeServer.id, listing.path)}>Refresh</button>
-            </div>
-            <div className="fileList">
-              {listing.entries.map((entry) => (
-                <button key={entry.path} className="fileRow" onClick={() => entry.type === "directory" ? loadFiles(activeServer.id, entry.path) : openFile(entry.path)}>
-                  <span>{entry.type === "directory" ? "[dir]" : "[file]"} {entry.name}</span>
-                  <small>{entry.type === "file" ? formatBytes(entry.size) : ""}</small>
+        {notice && <div className="notice">{notice}</div>}
+
+        {activePage === "servers" && (
+          <section className="pageStack">
+            <section className="serverList">
+              {appState.servers.map((server) => (
+                <button
+                  key={server.id}
+                  className={`serverListItem ${server.id === activeServer?.id ? "active" : ""}`}
+                  onClick={() => {
+                    setActiveServerId(server.id);
+                    setActivePage("server");
+                  }}
+                >
+                  <strong>{server.displayName}</strong>
+                  <span>{server.minecraftVersion || "Version unknown"} · Fabric</span>
+                  <small>{server.directoryLabel}</small>
                 </button>
               ))}
-            </div>
+              {!appState.servers.length && (
+                <div className="emptyState">
+                  <h2>No Servers Yet</h2>
+                  <p>Create a Fabric server to start managing files, mods, and runtime control.</p>
+                  <button onClick={() => setShowCreate(true)}>Create Server</button>
+                </div>
+              )}
+            </section>
+            {showCreate && (
+              <section className="panel attachPanel">
+                <div className="panelHeader">
+                  <h2>Create Fabric Server</h2>
+                  <button onClick={() => setShowCreate(false)}>Close</button>
+                </div>
+                <AttachForm onSubmit={attachServer} dockerSocketMounted={appState.dockerSocketMounted} versions={fabricVersions} />
+              </section>
+            )}
           </section>
+        )}
 
-          <section className="panel editorPanel">
-            <div className="panelHeader">
-              <h2>Editor</h2>
-              <code>{selectedPath || "No file selected"}</code>
-            </div>
-            <textarea value={editorText} onChange={(event) => { setEditorText(event.target.value); setDirty(true); }} disabled={!selectedPath} spellCheck={false} />
-            <div className="buttonRow">
-              <button onClick={saveFile} disabled={!selectedPath || !dirty}>Save</button>
-              <span className="muted">Text files up to 2 MiB are supported. Binary editing is intentionally blocked.</span>
-            </div>
+        {activePage === "settings" && (
+          <section className="tabPage settingsPage">
+            <section className="panel settingsPanel">
+              <h2>Appearance</h2>
+              <label className="toggleRow">
+                <input type="checkbox" checked={darkMode} onChange={(event) => setDarkMode(event.target.checked)} />
+                Dark mode
+              </label>
+            </section>
+            <section className="panel settingsPanel">
+              <h2>Integrations</h2>
+              <ModrinthKeyForm onSubmit={updateModrinthKey} configured={appState.modrinthApiConfigured} />
+            </section>
           </section>
-        </section>
-      )}
+        )}
 
-      {activeTab === "mods" && (
-        <section className="tabPage">
-          <section className="panel modsPanel">
-            <div className="panelHeader">
-              <h2>Modrinth</h2>
-              <span className={appState.modrinthApiConfigured ? "ok" : "muted"}>
-                API key {appState.modrinthApiConfigured ? "configured" : "not configured"}
+        {activePage === "server" && !activeServer && (
+          <section className="emptyState">
+            <h2>No Server Selected</h2>
+            <p>Create or select a server from the Servers page.</p>
+            <button onClick={() => setActivePage("servers")}>Open Servers</button>
+          </section>
+        )}
+
+        {activePage === "server" && activeServer && (
+          <>
+            <div className="activeServerStrip">
+              <div>
+                <strong>{activeServer.displayName}</strong>
+                <span>{activeServer.minecraftVersion || "Version unknown"} · {activeServer.directoryLabel}</span>
+              </div>
+              <span className={`runtimeBadge ${runtimeTone(status, appState.dockerSocketMounted)}`}>
+                {runtimeLabel(status, appState.dockerSocketMounted)}
               </span>
             </div>
-            <form onSubmit={searchMods} className="modSearch">
-              <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Fabric mods" />
-              <input value={gameVersion} onChange={(event) => setGameVersion(event.target.value)} placeholder="Minecraft version" />
-              <button disabled={!query.trim() || !gameVersion.trim()}>Search</button>
-            </form>
-            <div className="mods">
-              {mods.map((mod) => (
-                <article key={mod.project_id} className="modRow">
-                  {mod.icon_url && <img src={mod.icon_url} alt="" />}
-                  <div>
-                    <strong>{mod.title}</strong>
-                    <p>{mod.description}</p>
-                    <small>{mod.downloads.toLocaleString()} downloads</small>
-                  </div>
-                  <button onClick={() => installMod(mod.project_id, mod.title)}>Install</button>
-                </article>
-              ))}
-            </div>
-          </section>
-        </section>
-      )}
 
-      {activeTab === "settings" && (
-        <section className="tabPage settingsPage">
-          <section className="panel settingsPanel">
-            <h2>Integrations</h2>
-            <ModrinthKeyForm onSubmit={updateModrinthKey} configured={appState.modrinthApiConfigured} />
-          </section>
-          <section className="panel settingsPanel">
-            <h2>Server Settings</h2>
-            <dl className="meta">
-              <dt>Server type</dt>
-              <dd>Fabric</dd>
-              <dt>Jar metadata</dt>
-              <dd>{activeServer.serverJar || "Not set"}</dd>
-              <dt>Docker socket</dt>
-              <dd>{appState.dockerSocketMounted ? "Mounted" : "Not mounted"}</dd>
-              <dt>Storage</dt>
-              <dd>{activeServer.storageName || "Not set"}</dd>
-              <dt>Java args</dt>
-              <dd>{activeServer.javaArgs || "-Xms2G -Xmx4G"}</dd>
-              <dt>Ports</dt>
-              <dd>{activeServer.dockerPorts || "25565:25565/tcp"}</dd>
-              <dt>File logs</dt>
-              <dd>{status?.fileLogsAvailable ? "logs/latest.log found" : "logs/latest.log not found"}</dd>
-              <dt>Control</dt>
-              <dd>{status?.controlAvailable ? "Docker container control enabled" : "Not configured"}</dd>
-            </dl>
-            <ServerEditForm server={activeServer} versions={fabricVersions} onSubmit={updateServer} />
-          </section>
-        </section>
-      )}
+            <nav className="tabs">
+              <button className={activeTab === "overview" ? "active" : ""} onClick={() => setActiveTab("overview")}>Overview</button>
+              <button className={activeTab === "files" ? "active" : ""} onClick={() => setActiveTab("files")}>Files</button>
+              <button className={activeTab === "mods" ? "active" : ""} onClick={() => setActiveTab("mods")}>Mods</button>
+              <button className={activeTab === "settings" ? "active" : ""} onClick={() => setActiveTab("settings")}>Server Settings</button>
+            </nav>
+
+            {activeTab === "overview" && (
+              <section className="tabPage overviewPage">
+                <section className="panel controls">
+                  <h2>Managed Server</h2>
+                  <dl className="meta">
+                    <dt>Directory</dt>
+                    <dd>{activeServer.directoryLabel}</dd>
+                    <dt>Version</dt>
+                    <dd>{activeServer.minecraftVersion || "Manual / unknown"}</dd>
+                    <dt>Fabric loader</dt>
+                    <dd>{activeServer.loaderVersion || "Latest stable"}</dd>
+                    <dt>Docker</dt>
+                    <dd>{status?.docker.message || status?.docker.container || "Not configured"}</dd>
+                    <dt>Runtime image</dt>
+                    <dd>{activeServer.dockerImage || "eclipse-temurin:21-jre"}</dd>
+                  </dl>
+                  <div className="buttonRow">
+                    <button onClick={() => runContainerAction("start")} disabled={!status?.controlAvailable || status.docker.running}>Start</button>
+                    <button onClick={() => runContainerAction("stop")} disabled={!status?.controlAvailable || !status.docker.running}>Stop</button>
+                    <button onClick={() => runContainerAction("restart")} disabled={!status?.controlAvailable}>Restart</button>
+                  </div>
+                  <form onSubmit={sendCommand} className="commandLine">
+                    <input placeholder="Live stdin commands are unavailable in this MVP" disabled />
+                    <button disabled>Send</button>
+                  </form>
+                  <p className="muted">{status?.commandInputMessage}</p>
+                </section>
+
+                <section className="panel consolePanel">
+                  <h2>Console Logs</h2>
+                  <div className="console" ref={consoleRef}>
+                    {logs.length ? logs.map((line, index) => <pre key={index}>{line}</pre>) : <span className="muted">No log output yet.</span>}
+                  </div>
+                  <p className="muted">
+                    {status?.docker.configured && appState.dockerSocketMounted
+                      ? "Streaming Docker container logs."
+                      : "Streaming logs/latest.log when the server writes output."}
+                  </p>
+                </section>
+              </section>
+            )}
+
+            {activeTab === "files" && (
+              <section className="tabPage filesPage">
+                <section className="panel filesPanel">
+                  <div className="panelHeader">
+                    <h2>Files</h2>
+                    <code>{listing.path}</code>
+                  </div>
+                  <div className="fileActions">
+                    <button onClick={() => loadFiles(activeServer.id, parentPath(listing.path))} disabled={listing.path === "/"}>Up</button>
+                    <button onClick={() => loadFiles(activeServer.id, listing.path)}>Refresh</button>
+                  </div>
+                  <div className="fileList">
+                    {listing.entries.map((entry) => (
+                      <button key={entry.path} className="fileRow" onClick={() => entry.type === "directory" ? loadFiles(activeServer.id, entry.path) : openFile(entry.path)}>
+                        <span>{entry.type === "directory" ? "[dir]" : "[file]"} {entry.name}</span>
+                        <small>{entry.type === "file" ? formatBytes(entry.size) : ""}</small>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+
+                <section className="panel editorPanel">
+                  <div className="panelHeader">
+                    <h2>Editor</h2>
+                    <code>{selectedPath || "No file selected"}</code>
+                  </div>
+                  <textarea value={editorText} onChange={(event) => { setEditorText(event.target.value); setDirty(true); }} disabled={!selectedPath} spellCheck={false} />
+                  <div className="buttonRow">
+                    <button onClick={saveFile} disabled={!selectedPath || !dirty}>Save</button>
+                    <span className="muted">Text files up to 2 MiB are supported. Binary editing is intentionally blocked.</span>
+                  </div>
+                </section>
+              </section>
+            )}
+
+            {activeTab === "mods" && (
+              <section className="tabPage">
+                <section className="panel modsPanel">
+                  <div className="panelHeader">
+                    <h2>Modrinth</h2>
+                    <span className={appState.modrinthApiConfigured ? "ok" : "muted"}>
+                      API key {appState.modrinthApiConfigured ? "configured" : "not configured"}
+                    </span>
+                  </div>
+                  <form onSubmit={searchMods} className="modSearch">
+                    <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Fabric mods" />
+                    <input value={gameVersion} onChange={(event) => setGameVersion(event.target.value)} placeholder="Minecraft version" />
+                    <button disabled={!query.trim() || !gameVersion.trim()}>Search</button>
+                  </form>
+                  <div className="mods">
+                    {mods.map((mod) => (
+                      <article key={mod.project_id} className="modRow">
+                        {mod.icon_url && <img src={mod.icon_url} alt="" />}
+                        <div>
+                          <strong>{mod.title}</strong>
+                          <p>{mod.description}</p>
+                          <small>{mod.downloads.toLocaleString()} downloads</small>
+                        </div>
+                        <button onClick={() => installMod(mod.project_id, mod.title)}>Install</button>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              </section>
+            )}
+
+            {activeTab === "settings" && (
+              <section className="tabPage settingsPage">
+                <section className="panel settingsPanel">
+                  <h2>Server Settings</h2>
+                  <dl className="meta">
+                    <dt>Server type</dt>
+                    <dd>Fabric</dd>
+                    <dt>Jar metadata</dt>
+                    <dd>{activeServer.serverJar || "Not set"}</dd>
+                    <dt>Docker socket</dt>
+                    <dd>{appState.dockerSocketMounted ? "Mounted" : "Not mounted"}</dd>
+                    <dt>Storage</dt>
+                    <dd>{activeServer.storageName || "Not set"}</dd>
+                    <dt>Java args</dt>
+                    <dd>{activeServer.javaArgs || "-Xms2G -Xmx4G"}</dd>
+                    <dt>Ports</dt>
+                    <dd>{activeServer.dockerPorts || "25565:25565/tcp"}</dd>
+                    <dt>File logs</dt>
+                    <dd>{status?.fileLogsAvailable ? "logs/latest.log found" : "logs/latest.log not found"}</dd>
+                    <dt>Control</dt>
+                    <dd>{status?.controlAvailable ? "Docker container control enabled" : "Not configured"}</dd>
+                  </dl>
+                  <ServerEditForm server={activeServer} versions={fabricVersions} onSubmit={updateServer} />
+                </section>
+                <DeleteServerPanel server={activeServer} onSubmit={deleteServer} />
+              </section>
+            )}
+          </>
+        )}
+      </section>
     </main>
   );
 }
@@ -765,6 +823,32 @@ function ServerEditForm({
       </label>
       <button>Save server settings</button>
     </form>
+  );
+}
+
+function DeleteServerPanel({
+  server,
+  onSubmit
+}: {
+  server: AttachedServer;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  return (
+    <section className="panel dangerPanel">
+      <h2>Delete Server</h2>
+      <p className="muted">This removes the server from ServerSentinel. File deletion is optional and cannot be undone.</p>
+      <form onSubmit={onSubmit} className="attachForm">
+        <label>
+          Type server name to confirm
+          <input name="confirmName" placeholder={server.displayName} required />
+        </label>
+        <label className="checkLine dangerCheck">
+          <input name="deleteFiles" type="checkbox" />
+          Also delete this server's files from disk
+        </label>
+        <button className="dangerButton">Delete Server</button>
+      </form>
+    </section>
   );
 }
 
