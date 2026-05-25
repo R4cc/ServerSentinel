@@ -127,12 +127,198 @@ type ProvisionJob = {
 type ActivePage = "servers" | "server" | "settings" | "create";
 type ThemePreference = "light" | "dark" | "system";
 
+const demoServerId = "demo-survival";
+
 const emptyApp: AppState = {
   servers: [],
   modrinthApiConfigured: false,
   dockerSocketMounted: false,
   totalMemory: 0
 };
+
+const demoStartedAt = Date.now();
+
+const initialDemoSchedules: ScheduledExecution[] = [{
+  id: "demo-schedule-backup",
+  name: "Nightly backup",
+  cron: "0 4 * * *",
+  commands: ["save-all", "say Backup complete"],
+  onlyWhenNoPlayers: true,
+  enabled: true,
+  createdAt: new Date(demoStartedAt - 86_400_000).toISOString(),
+  updatedAt: new Date(demoStartedAt - 3_600_000).toISOString(),
+  lastRunAt: new Date(demoStartedAt - 18_000_000).toISOString(),
+  lastStatus: "succeeded",
+  lastMessage: "Demo execution completed"
+}];
+
+const initialDemoMods: InstalledMod[] = [
+  {
+    filename: "fabric-api-demo.jar",
+    displayName: "Fabric API",
+    enabled: true,
+    size: 2_840_576,
+    modifiedAt: new Date(demoStartedAt - 172_800_000).toISOString()
+  },
+  {
+    filename: "lithium-demo.jar",
+    displayName: "Lithium",
+    enabled: true,
+    size: 734_208,
+    modifiedAt: new Date(demoStartedAt - 86_400_000).toISOString()
+  }
+];
+
+const demoSearchResults: ModrinthHit[] = [
+  {
+    project_id: "demo-sodium",
+    title: "Sodium",
+    description: "Client and server rendering performance mod shown here as demo data.",
+    downloads: 42_500_000
+  },
+  {
+    project_id: "demo-ferritecore",
+    title: "FerriteCore",
+    description: "Memory optimization mod included in the simulated Modrinth search.",
+    downloads: 18_250_000
+  },
+  {
+    project_id: "demo-clumps",
+    title: "Clumps",
+    description: "Groups XP orbs together to reduce server work in busy worlds.",
+    downloads: 31_100_000
+  }
+];
+
+const initialDemoFiles: Record<string, string> = {
+  "/server.properties": [
+    "motd=ServerSentinel Demo",
+    "max-players=20",
+    "view-distance=10",
+    "simulation-distance=8",
+    "online-mode=true"
+  ].join("\n"),
+  "/config/serversentinel-demo.toml": [
+    "demo = true",
+    "runtime = \"simulated\"",
+    "docker_required = false"
+  ].join("\n"),
+  "/logs/latest.log": [
+    "[12:00:00] [Server thread/INFO]: Starting minecraft server version 1.21.4",
+    "[12:00:03] [Server thread/INFO]: Preparing spawn area: 100%",
+    "[12:00:05] [Server thread/INFO]: Done (5.132s)! For help, type \"help\""
+  ].join("\n")
+};
+
+function demoServer(schedules: ScheduledExecution[] = initialDemoSchedules): AttachedServer {
+  return {
+    id: demoServerId,
+    displayName: "Demo Survival",
+    directoryLabel: "/demo/survival",
+    storageName: "Browser demo",
+    minecraftVersion: "1.21.4",
+    loaderVersion: "0.16.10",
+    installerVersion: "1.0.1",
+    serverJar: "fabric-server-launch.jar",
+    dockerContainer: "serversentinel-demo",
+    dockerImage: "simulated-runtime",
+    dockerPorts: "25565:25565/tcp",
+    javaArgs: "-Xms2G -Xmx4G",
+    schedules,
+    serverType: "fabric",
+    hasDockerContainer: true
+  };
+}
+
+function demoStatus(server: AttachedServer, running: boolean): ServerStatus {
+  return {
+    server,
+    docker: {
+      configured: true,
+      available: true,
+      controllable: true,
+      state: running ? "running" : "exited",
+      running,
+      container: "serversentinel-demo",
+      message: "Demo mode simulates runtime control without Docker."
+    },
+    fileLogsAvailable: true,
+    controlAvailable: true,
+    commandInputAvailable: running,
+    commandInputMessage: running ? "" : "Start the demo server to enable simulated console input."
+  };
+}
+
+function demoStats(running: boolean): ResourceSample {
+  const elapsed = (Date.now() - demoStartedAt) / 1000;
+  const memoryLimitBytes = 4 * 1024 * 1024 * 1024;
+  const memoryUsageBytes = running ? Math.round((1.35 + Math.sin(elapsed / 12) * 0.18) * 1024 * 1024 * 1024) : 0;
+  return {
+    available: true,
+    running,
+    cpuPercent: running ? 8 + Math.max(0, Math.sin(elapsed / 7)) * 22 : 0,
+    memoryUsageBytes,
+    memoryLimitBytes,
+    readAt: new Date().toISOString(),
+    container: "serversentinel-demo",
+    message: running ? "Simulated runtime stats." : "Demo server is stopped.",
+    sampledAt: Date.now()
+  };
+}
+
+function demoListing(path: string, files: Record<string, string>, mods: InstalledMod[]): FileListing {
+  if (path === "/mods") {
+    return {
+      path,
+      entries: mods.map((mod) => ({
+        name: mod.filename,
+        path: `/mods/${mod.filename}`,
+        type: "file",
+        size: mod.size,
+        modifiedAt: mod.modifiedAt
+      }))
+    };
+  }
+  if (path === "/config") {
+    return {
+      path,
+      entries: [{
+        name: "serversentinel-demo.toml",
+        path: "/config/serversentinel-demo.toml",
+        type: "file",
+        size: files["/config/serversentinel-demo.toml"]?.length ?? 0,
+        modifiedAt: new Date(demoStartedAt - 12_000_000).toISOString()
+      }]
+    };
+  }
+  if (path === "/logs") {
+    return {
+      path,
+      entries: [{
+        name: "latest.log",
+        path: "/logs/latest.log",
+        type: "file",
+        size: files["/logs/latest.log"]?.length ?? 0,
+        modifiedAt: new Date().toISOString()
+      }]
+    };
+  }
+  return {
+    path: "/",
+    entries: [
+      { name: "config", path: "/config", type: "directory", size: 0, modifiedAt: new Date(demoStartedAt).toISOString() },
+      { name: "logs", path: "/logs", type: "directory", size: 0, modifiedAt: new Date().toISOString() },
+      { name: "mods", path: "/mods", type: "directory", size: 0, modifiedAt: new Date(demoStartedAt).toISOString() },
+      {
+        name: "server.properties",
+        path: "/server.properties",
+        type: "file",
+        size: files["/server.properties"]?.length ?? 0,
+        modifiedAt: new Date(demoStartedAt - 7_200_000).toISOString()
+      }
+    ]
+  };
+}
 
 const defaultServerPort = 25565;
 const minServerPort = 1000;
@@ -226,6 +412,14 @@ function isEditableFile(entry: FileEntry) {
     || !entry.name.includes(".");
 }
 
+function fileIconKind(entry: FileEntry) {
+  if (entry.type === "directory") return "folder";
+  if (/\.jar$/i.test(entry.name)) return "jar";
+  if (/\.(log|txt|md|csv|env)$/i.test(entry.name)) return "text";
+  if (/\.(properties|json5?|ya?ml|toml|cfg|conf)$/i.test(entry.name)) return "config";
+  return "file";
+}
+
 function bufferToBase64(buffer: ArrayBuffer) {
   let binary = "";
   const bytes = new Uint8Array(buffer);
@@ -280,6 +474,7 @@ function isValidServerPort(port: string) {
 
 function runtimeLabel(status: ServerStatus | null, dockerSocketMounted: boolean) {
   if (!status) return "Checking container";
+  if (status.docker.container === "serversentinel-demo") return status.docker.running ? "Demo server running" : "Demo server stopped";
   if (!dockerSocketMounted) return "Docker socket not mounted";
   if (!status.docker.configured) return "Container control not configured";
   if (!status.docker.available) return status.docker.message || "Container unavailable";
@@ -314,17 +509,94 @@ function SidebarIcon({ name }: { name: "servers" | "settings" }) {
   );
 }
 
-function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) {
+function AppIcon({ name }: { name: "chevronLeft" | "chevronRight" | "plus" | "x" | "fileUp" }) {
   return (
-    <svg className="toggleIcon" viewBox="0 0 24 24" aria-hidden="true">
-      {collapsed ? <path d="M9 5l7 7-7 7" /> : <path d="M15 5l-7 7 7 7" />}
+    <svg className="buttonIcon" viewBox="0 0 24 24" aria-hidden="true">
+      {name === "chevronLeft" && <path d="m15 5-7 7 7 7" />}
+      {name === "chevronRight" && <path d="m9 5 7 7-7 7" />}
+      {name === "plus" && (
+        <>
+          <path d="M12 5v14" />
+          <path d="M5 12h14" />
+        </>
+      )}
+      {name === "x" && (
+        <>
+          <path d="m6 6 12 12" />
+          <path d="m18 6-12 12" />
+        </>
+      )}
+      {name === "fileUp" && (
+        <>
+          <path d="M7 3h7l4 4v14H7z" />
+          <path d="M14 3v5h4" />
+          <path d="M12 17V10" />
+          <path d="m9 13 3-3 3 3" />
+        </>
+      )}
     </svg>
   );
+}
+
+function FileTypeIcon({ entry }: { entry: FileEntry }) {
+  const kind = fileIconKind(entry);
+  return (
+    <span className={`fileTypeIcon ${kind}`} aria-hidden="true">
+      <svg viewBox="0 0 24 24">
+        {kind === "folder" && (
+          <>
+            <path d="M3 7.5h6l2 2h10v8.5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+            <path d="M3 7.5V6a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v1.5" />
+          </>
+        )}
+        {kind !== "folder" && (
+          <>
+            <path d="M6 3h8l4 4v14H6Z" />
+            <path d="M14 3v5h4" />
+          </>
+        )}
+        {kind === "jar" && (
+          <>
+            <path d="M9 12h6" />
+            <path d="M9 15h6" />
+            <path d="M10 18h4" />
+          </>
+        )}
+        {kind === "text" && (
+          <>
+            <path d="M9 12h6" />
+            <path d="M9 15h5" />
+            <path d="M9 18h6" />
+          </>
+        )}
+        {kind === "config" && (
+          <>
+            <circle cx="12" cy="15" r="2.5" />
+            <path d="M12 11v-1.5" />
+            <path d="M12 20.5V19" />
+            <path d="M8.1 12.7 7 11.6" />
+            <path d="m17 18.4-1.1-1.1" />
+            <path d="m15.9 12.7 1.1-1.1" />
+            <path d="M7 18.4 8.1 17.3" />
+          </>
+        )}
+      </svg>
+      {kind === "jar" && <span>JAR</span>}
+    </span>
+  );
+}
+
+function SidebarToggleIcon({ collapsed }: { collapsed: boolean }) {
+  return <AppIcon name={collapsed ? "chevronRight" : "chevronLeft"} />;
 }
 
 function readThemePreference(): ThemePreference {
   const saved = window.localStorage.getItem("serversentinel-theme");
   return saved === "dark" || saved === "system" || saved === "light" ? saved : "light";
+}
+
+function readDemoMode() {
+  return window.localStorage.getItem("serversentinel-demo-mode") === "true";
 }
 
 export default function App() {
@@ -335,6 +607,7 @@ export default function App() {
   const [listing, setListing] = useState<FileListing>({ path: "/", entries: [] });
   const [selectedPath, setSelectedPath] = useState("");
   const [editorText, setEditorText] = useState("");
+  const [savedEditorText, setSavedEditorText] = useState("");
   const [dirty, setDirty] = useState(false);
   const [query, setQuery] = useState("");
   const [modSearchResults, setModSearchResults] = useState<ModrinthHit[]>([]);
@@ -359,17 +632,33 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<"overview" | "files" | "mods" | "schedule" | "settings">("overview");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [themePreference, setThemePreference] = useState<ThemePreference>(() => readThemePreference());
+  const [demoMode, setDemoMode] = useState(() => readDemoMode());
+  const [demoRunning, setDemoRunning] = useState(true);
+  const [demoFiles, setDemoFiles] = useState<Record<string, string>>(() => initialDemoFiles);
+  const [demoInstalledMods, setDemoInstalledMods] = useState<InstalledMod[]>(() => initialDemoMods);
+  const [demoSchedules, setDemoSchedules] = useState<ScheduledExecution[]>(() => initialDemoSchedules);
   const [systemDark, setSystemDark] = useState(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false);
   const consoleRef = useRef<HTMLDivElement>(null);
   const modUploadRef = useRef<HTMLInputElement>(null);
   const darkMode = themePreference === "dark" || (themePreference === "system" && systemDark);
   const isProvisioning = provisionJob?.status === "running";
-  const modsLocked = isProvisioning || !status || Boolean(status.docker.running);
+  const effectiveAppState = useMemo<AppState>(() => {
+    if (!demoMode) return appState;
+    return {
+      ...appState,
+      servers: [demoServer(demoSchedules), ...appState.servers.filter((server) => server.id !== demoServerId)],
+      modrinthApiConfigured: true,
+      dockerSocketMounted: true,
+      totalMemory: appState.totalMemory || 16 * 1024 * 1024 * 1024
+    };
+  }, [appState, demoMode, demoSchedules]);
 
   const activeServer = useMemo(
-    () => appState.servers.find((server) => server.id === activeServerId) ?? appState.servers[0],
-    [activeServerId, appState.servers]
+    () => effectiveAppState.servers.find((server) => server.id === activeServerId) ?? effectiveAppState.servers[0],
+    [activeServerId, effectiveAppState.servers]
   );
+  const activeServerIsDemo = demoMode && activeServer?.id === demoServerId;
+  const modsLocked = isProvisioning || !status || Boolean(status.docker.running);
   const commandSuggestions = useMemo(() => {
     const value = commandInput.trimStart().toLowerCase().replace(/^\//, "");
     const matches = value
@@ -390,6 +679,25 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    window.localStorage.setItem("serversentinel-demo-mode", String(demoMode));
+    if (demoMode) {
+      setNotice("");
+      setActiveServerId(demoServerId);
+      setActivePage("server");
+      setActiveTab("overview");
+    } else if (activeServerId === demoServerId) {
+      setActiveServerId("");
+      setActivePage("servers");
+      setStatus(null);
+      setLogs([]);
+      setListing({ path: "/", entries: [] });
+      setSelectedPath("");
+      setEditorText("");
+      setDirty(false);
+    }
+  }, [demoMode]);
+
+  useEffect(() => {
     if (!activeServer) return;
     setActiveServerId(activeServer.id);
     setLogs([]);
@@ -399,6 +707,18 @@ export default function App() {
     setResourceSamples([]);
     setModSearchResults([]);
     setModsView("manager");
+    if (demoMode && activeServer.id === demoServerId) {
+      setStatus(demoStatus(activeServer, demoRunning));
+      setLogs([
+        "[demo] Starting minecraft server version 1.21.4",
+        "[demo] Loading Fabric Loader 0.16.10",
+        "[demo] Preparing spawn area: 100%",
+        "[demo] Done (5.132s)! For help, type \"help\""
+      ]);
+      setListing(demoListing("/", demoFiles, demoInstalledMods));
+      setInstalledMods(demoInstalledMods);
+      return;
+    }
     refreshStatus(activeServer.id);
     loadFiles(activeServer.id, "/");
     loadInstalledMods(activeServer.id);
@@ -419,7 +739,7 @@ export default function App() {
     };
     socket.onerror = () => setLogs(["Console stream is unavailable."]);
     return () => socket.close();
-  }, [activeServer?.id, consoleStreamVersion]);
+  }, [activeServer?.id, consoleStreamVersion, demoMode]);
 
   useEffect(() => {
     if (activeTab !== "overview") return;
@@ -447,6 +767,11 @@ export default function App() {
 
   useEffect(() => {
     if (!activeServer || activePage !== "server" || activeTab !== "overview") return;
+    if (demoMode && activeServer.id === demoServerId) {
+      setResourceSamples([demoStats(demoRunning)]);
+      const interval = window.setInterval(() => setResourceSamples([demoStats(demoRunning)]), resourcePollMs);
+      return () => window.clearInterval(interval);
+    }
     const serverId = activeServer.id;
     let cancelled = false;
     setResourceSamples([]);
@@ -476,15 +801,29 @@ export default function App() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [activeServer?.id, activePage, activeTab]);
+  }, [activeServer?.id, activePage, activeTab, demoMode, demoRunning]);
 
   useEffect(() => {
-    if (!activeServer || activeTab !== "mods" || modsView !== "search" || !appState.modrinthApiConfigured) return;
+    if (!activeServer || activeTab !== "mods" || modsView !== "search" || !effectiveAppState.modrinthApiConfigured) return;
     const trimmedQuery = query.trim();
     if (!trimmedQuery) {
       setModSearchResults([]);
       setIsSearchingMods(false);
       return;
+    }
+    if (activeServerIsDemo) {
+      setIsSearchingMods(true);
+      const timeout = window.setTimeout(() => {
+        setModSearchResults(demoSearchResults.filter((mod) => (
+          mod.title.toLowerCase().includes(trimmedQuery.toLowerCase())
+          || mod.description.toLowerCase().includes(trimmedQuery.toLowerCase())
+        )));
+        setIsSearchingMods(false);
+      }, 250);
+      return () => {
+        setIsSearchingMods(false);
+        window.clearTimeout(timeout);
+      };
     }
     let cancelled = false;
     setIsSearchingMods(true);
@@ -508,7 +847,7 @@ export default function App() {
       setIsSearchingMods(false);
       window.clearTimeout(timeout);
     };
-  }, [activeServer?.id, activeTab, appState.modrinthApiConfigured, modsView, query]);
+  }, [activeServer?.id, activeTab, effectiveAppState.modrinthApiConfigured, modsView, query, activeServerIsDemo]);
 
   function notify(type: Notice["type"], text: string) {
     const id = Date.now() + Math.random();
@@ -520,6 +859,10 @@ export default function App() {
 
   async function refreshApp() {
     setNotice("");
+    if (demoMode) {
+      if (!activeServerId) setActiveServerId(demoServerId);
+      return;
+    }
     try {
       const next = await api<AppState>("/api/app");
       setAppState(next);
@@ -535,6 +878,10 @@ export default function App() {
   async function refreshStatus(serverId = activeServer?.id) {
     if (isProvisioning) return;
     if (!serverId) return;
+    if (demoMode && serverId === demoServerId) {
+      setStatus(demoStatus(demoServer(demoSchedules), demoRunning));
+      return;
+    }
     try {
       setStatus(await api<ServerStatus>(`/api/servers/${serverId}/status`));
     } catch (error) {
@@ -544,6 +891,13 @@ export default function App() {
 
   async function refreshConsoleLogs(serverId = activeServer?.id) {
     if (!serverId) return;
+    if (demoMode && serverId === demoServerId) {
+      setLogs((current) => current.length ? current : [
+        "[demo] Starting minecraft server version 1.21.4",
+        "[demo] Done (5.132s)! For help, type \"help\""
+      ]);
+      return;
+    }
     try {
       const result = await api<{ text: string; source: string }>(`/api/servers/${serverId}/logs`);
       const lines = result.text.split(/\r?\n/).filter(Boolean).slice(-200);
@@ -629,6 +983,10 @@ export default function App() {
     if (!activeServer) return;
     setNotice("");
     const form = new FormData(event.currentTarget);
+    if (activeServerIsDemo) {
+      notify("success", `Updated ${String(form.get("displayName") || activeServer.displayName)} in demo mode`);
+      return;
+    }
     try {
       const server = await api<AttachedServer>(`/api/servers/${activeServer.id}`, {
         method: "PUT",
@@ -677,6 +1035,19 @@ export default function App() {
     setNotice("");
     setRuntimeAction(action);
     try {
+      if (activeServerIsDemo) {
+        const nextRunning = action !== "stop";
+        setDemoRunning(nextRunning);
+        setStatus(demoStatus(activeServer, nextRunning));
+        setResourceSamples([demoStats(nextRunning)]);
+        setLogs((current) => [
+          ...current.slice(-496),
+          `[demo] ${action === "restart" ? "Restarting" : action === "start" ? "Starting" : "Stopping"} simulated server`,
+          `[demo] Server is now ${nextRunning ? "running" : "stopped"}`
+        ]);
+        notify("success", `Demo server ${nextRunning ? "running" : "stopped"}`);
+        return;
+      }
       await api(`/api/servers/${activeServer.id}/${action}`, { method: "POST" });
       await refreshStatus(activeServer.id);
       setConsoleStreamVersion((version) => version + 1);
@@ -698,6 +1069,23 @@ export default function App() {
     if (!command) return;
     setNotice("");
     try {
+      if (activeServerIsDemo) {
+        const response = command === "list"
+          ? "There are 2 of a max of 20 players online: Alex, Steve"
+          : command === "seed"
+            ? "Seed: 8675309"
+            : command === "help"
+              ? "Available demo commands: help, list, seed, say, stop"
+              : command.startsWith("say ")
+                ? `[Server] ${command.slice(4)}`
+                : `Executed demo command: ${command}`;
+        setLogs((current) => [...current.slice(-497), `[command] > ${command}`, `[demo] ${response}`]);
+        setCommandHistory((current) => [...current.filter((entry) => entry !== command), command].slice(-50));
+        setHistoryIndex(null);
+        setCommandInput("");
+        notify("success", `Sent command: ${command}`);
+        return;
+      }
       await api(`/api/servers/${activeServer.id}/command`, {
         method: "POST",
         body: JSON.stringify({ command })
@@ -746,6 +1134,10 @@ export default function App() {
   async function loadFiles(serverId: string, path: string) {
     if (isProvisioning) return;
     setNotice("");
+    if (demoMode && serverId === demoServerId) {
+      setListing(demoListing(path, demoFiles, demoInstalledMods));
+      return;
+    }
     try {
       setListing(await api<FileListing>(`/api/servers/${serverId}/files?path=${encodeURIComponent(path)}`));
     } catch (error) {
@@ -756,6 +1148,10 @@ export default function App() {
 
   async function loadInstalledMods(serverId: string) {
     if (isProvisioning) return;
+    if (demoMode && serverId === demoServerId) {
+      setInstalledMods(demoInstalledMods);
+      return;
+    }
     try {
       const result = await api<{ mods: InstalledMod[] }>(`/api/servers/${serverId}/mods`);
       setInstalledMods(result.mods);
@@ -769,12 +1165,21 @@ export default function App() {
     if (isProvisioning) return;
     if (!activeServer) return;
     setNotice("");
+    if (activeServerIsDemo) {
+      const content = demoFiles[path] ?? `Demo binary or generated file: ${path}`;
+      setSelectedPath(path);
+      setEditorText(content);
+      setSavedEditorText(content);
+      setDirty(false);
+      return;
+    }
     try {
       const file = await api<{ path: string; content: string }>(
         `/api/servers/${activeServer.id}/file?path=${encodeURIComponent(path)}`
       );
       setSelectedPath(file.path);
       setEditorText(file.content);
+      setSavedEditorText(file.content);
       setDirty(false);
     } catch (error) {
       setNotice((error as Error).message);
@@ -785,6 +1190,26 @@ export default function App() {
     if (isProvisioning || !activeServer) return;
     if (!window.confirm(`Delete ${entry.name}? This cannot be undone.`)) return;
     setNotice("");
+    if (activeServerIsDemo) {
+      if (entry.path.startsWith("/mods/")) {
+        setDemoInstalledMods((current) => current.filter((mod) => `/mods/${mod.filename}` !== entry.path));
+      } else {
+        setDemoFiles((current) => {
+          const next = { ...current };
+          delete next[entry.path];
+          return next;
+        });
+      }
+      if (selectedPath === entry.path) {
+        setSelectedPath("");
+        setEditorText("");
+        setSavedEditorText("");
+        setDirty(false);
+      }
+      notify("success", `Deleted ${entry.name}`);
+      setListing(demoListing(listing.path, demoFiles, demoInstalledMods.filter((mod) => `/mods/${mod.filename}` !== entry.path)));
+      return;
+    }
     try {
       await api(`/api/servers/${activeServer.id}/file?path=${encodeURIComponent(entry.path)}`, {
         method: "DELETE"
@@ -792,6 +1217,7 @@ export default function App() {
       if (selectedPath === entry.path) {
         setSelectedPath("");
         setEditorText("");
+        setSavedEditorText("");
         setDirty(false);
       }
       notify("success", `Deleted ${entry.name}`);
@@ -807,11 +1233,20 @@ export default function App() {
     if (isProvisioning) return;
     if (!activeServer) return;
     setNotice("");
+    if (activeServerIsDemo) {
+      setDemoFiles((current) => ({ ...current, [selectedPath]: editorText }));
+      setSavedEditorText(editorText);
+      setDirty(false);
+      setNotice(`Saved ${selectedPath}`);
+      notify("success", `Saved ${selectedPath}`);
+      return;
+    }
     try {
       await api(`/api/servers/${activeServer.id}/file`, {
         method: "PUT",
         body: JSON.stringify({ path: selectedPath, content: editorText })
       });
+      setSavedEditorText(editorText);
       setDirty(false);
       setNotice(`Saved ${selectedPath}`);
       notify("success", `Saved ${selectedPath}`);
@@ -822,12 +1257,26 @@ export default function App() {
     }
   }
 
+  function cancelFileEdit() {
+    if (!selectedPath || !dirty) return;
+    setEditorText(savedEditorText);
+    setDirty(false);
+  }
+
   async function searchMods(event: FormEvent) {
     event.preventDefault();
     if (isProvisioning) return;
     if (!activeServer) return;
     setNotice("");
     setIsSearchingMods(true);
+    if (activeServerIsDemo) {
+      window.setTimeout(() => {
+        const value = query.trim().toLowerCase();
+        setModSearchResults(demoSearchResults.filter((mod) => !value || mod.title.toLowerCase().includes(value) || mod.description.toLowerCase().includes(value)));
+        setIsSearchingMods(false);
+      }, 250);
+      return;
+    }
     try {
       const result = await api<{ hits: ModrinthHit[] }>(
         `/api/modrinth/search?query=${encodeURIComponent(query)}&serverId=${encodeURIComponent(activeServer.id)}`
@@ -849,6 +1298,19 @@ export default function App() {
       return;
     }
     setNotice("");
+    if (activeServerIsDemo) {
+      const mod: InstalledMod = {
+        filename: file.name,
+        displayName: file.name.replace(/\.jar$/i, "").replace(/[-_]/g, " "),
+        enabled: true,
+        size: file.size,
+        modifiedAt: new Date().toISOString()
+      };
+      setDemoInstalledMods((current) => [mod, ...current.filter((candidate) => candidate.filename !== mod.filename)]);
+      setInstalledMods((current) => [mod, ...current.filter((candidate) => candidate.filename !== mod.filename)]);
+      notify("success", `Uploaded ${file.name}`);
+      return;
+    }
     try {
       await api(`/api/servers/${activeServer.id}/mods/upload`, {
         method: "POST",
@@ -869,6 +1331,22 @@ export default function App() {
     if (modsLocked) return;
     if (!activeServer) return;
     setNotice("");
+    if (activeServerIsDemo) {
+      const filename = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || projectId}-demo.jar`;
+      const mod: InstalledMod = {
+        filename,
+        displayName: title,
+        enabled: true,
+        size: 1_048_576 + Math.round(Math.random() * 2_000_000),
+        modifiedAt: new Date().toISOString()
+      };
+      setDemoInstalledMods((current) => [mod, ...current.filter((candidate) => candidate.filename !== filename)]);
+      setInstalledMods((current) => [mod, ...current.filter((candidate) => candidate.filename !== filename)]);
+      setNotice(`Installed ${title} as ${filename}`);
+      notify("success", `Installed ${title}`);
+      setModsView("manager");
+      return;
+    }
     try {
       const result = await api<{ filename: string; version: string }>("/api/modrinth/install", {
         method: "POST",
@@ -888,6 +1366,13 @@ export default function App() {
   async function setInstalledModEnabled(mod: InstalledMod, enabled: boolean) {
     if (modsLocked || !activeServer) return;
     setNotice("");
+    if (activeServerIsDemo) {
+      const update = (current: InstalledMod[]) => current.map((candidate) => candidate.filename === mod.filename ? { ...candidate, enabled } : candidate);
+      setDemoInstalledMods(update);
+      setInstalledMods(update);
+      notify("success", `${enabled ? "Enabled" : "Disabled"} ${mod.displayName}`);
+      return;
+    }
     try {
       await api(`/api/servers/${activeServer.id}/mods`, {
         method: "PATCH",
@@ -905,6 +1390,12 @@ export default function App() {
   async function removeInstalledMod(mod: InstalledMod) {
     if (modsLocked || !activeServer) return;
     setNotice("");
+    if (activeServerIsDemo) {
+      setDemoInstalledMods((current) => current.filter((candidate) => candidate.filename !== mod.filename));
+      setInstalledMods((current) => current.filter((candidate) => candidate.filename !== mod.filename));
+      notify("success", `Removed ${mod.displayName}`);
+      return;
+    }
     try {
       await api(`/api/servers/${activeServer.id}/mods?filename=${encodeURIComponent(mod.filename)}`, {
         method: "DELETE"
@@ -924,6 +1415,23 @@ export default function App() {
     setNotice("");
     const formElement = event.currentTarget;
     const form = new FormData(formElement);
+    if (activeServerIsDemo) {
+      const schedule: ScheduledExecution = {
+        id: clientId(),
+        name: String(form.get("name") || "Demo schedule"),
+        cron: String(form.get("cron") || "* * * * *"),
+        commands: form.getAll("commands").map(String).filter(Boolean),
+        onlyWhenNoPlayers: form.get("onlyWhenNoPlayers") === "on",
+        enabled: form.get("enabled") === "on",
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        lastMessage: "Not run in demo session"
+      };
+      setDemoSchedules((current) => [schedule, ...current]);
+      formElement.reset();
+      notify("success", "Demo scheduled execution created");
+      return;
+    }
     try {
       await api<ScheduledExecution>(`/api/servers/${activeServer.id}/schedules`, {
         method: "POST",
@@ -946,6 +1454,15 @@ export default function App() {
 
   async function updateSchedule(schedule: ScheduledExecution, patch: Partial<ScheduledExecution>) {
     if (isProvisioning || !activeServer) return;
+    if (activeServerIsDemo) {
+      setDemoSchedules((current) => current.map((candidate) => (
+        candidate.id === schedule.id
+          ? { ...candidate, ...patch, updatedAt: new Date().toISOString() }
+          : candidate
+      )));
+      notify("success", patch.enabled ? "Schedule enabled" : "Schedule disabled");
+      return;
+    }
     try {
       const next = { ...schedule, ...patch };
       await api<ScheduledExecution>(`/api/servers/${activeServer.id}/schedules/${schedule.id}`, {
@@ -968,6 +1485,11 @@ export default function App() {
 
   async function deleteSchedule(schedule: ScheduledExecution) {
     if (isProvisioning || !activeServer) return;
+    if (activeServerIsDemo) {
+      setDemoSchedules((current) => current.filter((candidate) => candidate.id !== schedule.id));
+      notify("success", `Deleted ${schedule.name}`);
+      return;
+    }
     try {
       await api(`/api/servers/${activeServer.id}/schedules/${schedule.id}`, { method: "DELETE" });
       notify("success", `Deleted ${schedule.name}`);
@@ -984,6 +1506,15 @@ export default function App() {
     if (!activeServer) return;
     setNotice("");
     const form = new FormData(event.currentTarget);
+    if (activeServerIsDemo) {
+      if (form.get("confirmName") !== activeServer.displayName) {
+        notify("error", "Type the demo server name to confirm");
+        return;
+      }
+      setDemoMode(false);
+      notify("success", "Demo mode disabled");
+      return;
+    }
     try {
       const result = await api<{ ok: boolean; deletedFiles: boolean }>(`/api/servers/${activeServer.id}`, {
         method: "DELETE",
@@ -1042,12 +1573,6 @@ export default function App() {
               {activePage === "server" && (activeServer?.displayName ?? "No Server Selected")}
               {activePage === "settings" && "Settings"}
             </h2>
-            <p>
-              {activePage === "servers" && "Create, select, and review managed Fabric servers."}
-              {activePage === "create" && "Configure and launch a new Fabric server container."}
-              {activePage === "server" && (activeServer ? "Monitor runtime, logs, files, and mods." : "Create a server to begin.")}
-              {activePage === "settings" && "App-wide preferences and integrations."}
-            </p>
           </div>
           <div className="workspaceActions">
             {activePage === "servers" && <button onClick={() => setActivePage("create")} disabled={isProvisioning}>New server</button>}
@@ -1060,7 +1585,7 @@ export default function App() {
           <ProvisionProgress job={provisionJob} />
         )}
 
-        {!appState.dockerSocketMounted && (
+        {!effectiveAppState.dockerSocketMounted && (
           <section className="systemBanner warning">
             <strong>Docker integration is not connected.</strong>
             <span>Server files, editing, and configured integrations still work. Container creation, status, controls, Docker logs, and console input are limited until the Docker socket is mounted.</span>
@@ -1071,9 +1596,9 @@ export default function App() {
 
         {activePage === "servers" && (
           <section className="pageStack">
-            {appState.servers.length > 0 ? (
+            {effectiveAppState.servers.length > 0 ? (
               <section className="serverList">
-                {appState.servers.map((server) => (
+                {effectiveAppState.servers.map((server) => (
                   <button
                     key={server.id}
                     className={`serverListItem ${server.id === activeServer?.id ? "active" : ""}`}
@@ -1102,9 +1627,9 @@ export default function App() {
           <section className="panel attachPanel">
             <AttachForm
               onSubmit={attachServer}
-              dockerSocketMounted={appState.dockerSocketMounted}
+              dockerSocketMounted={effectiveAppState.dockerSocketMounted}
               versions={fabricVersions}
-              totalMemory={appState.totalMemory}
+              totalMemory={effectiveAppState.totalMemory}
               provisioning={isProvisioning}
             />
           </section>
@@ -1117,19 +1642,26 @@ export default function App() {
                 <span>01</span>
                 <div>
                   <h2>Interface</h2>
-                  <p>Display preferences for this browser.</p>
                 </div>
               </div>
               <label className="settingsRow">
                 <div>
                   <strong>Theme</strong>
-                  <span>Choose a fixed theme or follow your operating system.</span>
                 </div>
                 <select value={themePreference} onChange={(event) => setThemePreference(event.target.value as ThemePreference)}>
                   <option value="light">Light</option>
                   <option value="dark">Dark</option>
                   <option value="system">System</option>
                 </select>
+              </label>
+              <label className="settingsRow">
+                <div>
+                  <strong>Demo mode</strong>
+                </div>
+                <span className="settingsToggle">
+                  <input type="checkbox" checked={demoMode} onChange={(event) => setDemoMode(event.target.checked)} />
+                  {demoMode ? "Enabled" : "Disabled"}
+                </span>
               </label>
             </section>
 
@@ -1138,13 +1670,11 @@ export default function App() {
                 <span>02</span>
                 <div>
                   <h2>Integrations</h2>
-                  <p>External services used by optional server tools.</p>
                 </div>
               </div>
               <div className="settingsRow">
                 <div>
                   <strong>Modrinth API key</strong>
-                  <span>{appState.modrinthApiConfigured ? "Configured. Enter a new key to replace it." : "Required for mod search and installation."}</span>
                 </div>
                 <ModrinthKeyForm onSubmit={updateModrinthKey} configured={appState.modrinthApiConfigured} />
               </div>
@@ -1155,16 +1685,14 @@ export default function App() {
                 <span>03</span>
                 <div>
                   <h2>Container</h2>
-                  <p>Host-level capabilities available to ServerSentinel.</p>
                 </div>
               </div>
               <div className="settingsRow readOnly">
                 <div>
                   <strong>Docker socket</strong>
-                  <span>Enables runtime creation, container status, controls, Docker logs, and console input.</span>
                 </div>
-                <span className={`settingsStatus ${appState.dockerSocketMounted ? "ready" : "limited"}`}>
-                  {appState.dockerSocketMounted ? "Connected" : "Not mounted"}
+                <span className={`settingsStatus ${effectiveAppState.dockerSocketMounted ? "ready" : "limited"}`}>
+                  {demoMode ? "Demo override" : effectiveAppState.dockerSocketMounted ? "Connected" : "Not mounted"}
                 </span>
               </div>
             </section>
@@ -1187,8 +1715,8 @@ export default function App() {
                 <span>{activeServer.minecraftVersion || "Version unknown"} · Fabric</span>
               </div>
               <div className="activeServerRuntime">
-                <span className={`runtimeBadge ${runtimeTone(status, appState.dockerSocketMounted)}`}>
-                  {runtimeLabel(status, appState.dockerSocketMounted)}
+                <span className={`runtimeBadge ${runtimeTone(status, effectiveAppState.dockerSocketMounted)}`}>
+                  {runtimeLabel(status, effectiveAppState.dockerSocketMounted)}
                 </span>
                 <RuntimeControls
                   status={status}
@@ -1212,8 +1740,8 @@ export default function App() {
                 <section className="panel controls">
                   <div className="panelHeader">
                     <h2>Server Overview</h2>
-                    <span className={`runtimeBadge ${runtimeTone(status, appState.dockerSocketMounted)}`}>
-                      {runtimeLabel(status, appState.dockerSocketMounted)}
+                    <span className={`runtimeBadge ${runtimeTone(status, effectiveAppState.dockerSocketMounted)}`}>
+                      {runtimeLabel(status, effectiveAppState.dockerSocketMounted)}
                     </span>
                   </div>
                   <div className="serverSummary">
@@ -1236,7 +1764,7 @@ export default function App() {
                   </div>
                 </section>
 
-                <ResourcePanel server={activeServer} samples={resourceSamples} status={status} dockerSocketMounted={appState.dockerSocketMounted} />
+                <ResourcePanel server={activeServer} samples={resourceSamples} status={status} dockerSocketMounted={effectiveAppState.dockerSocketMounted} />
 
                 <section className="panel consolePanel">
                   <div className="panelHeader">
@@ -1285,11 +1813,6 @@ export default function App() {
                       <button disabled={isProvisioning || !status?.commandInputAvailable || !commandInput.trim()}>Send</button>
                     </form>
                   </div>
-                  <p className="muted">
-                    {status?.docker.configured && appState.dockerSocketMounted
-                      ? "Streaming Docker container logs."
-                      : "Waiting for server log output."}
-                  </p>
                 </section>
               </section>
             )}
@@ -1313,10 +1836,13 @@ export default function App() {
                           onClick={() => entry.type === "directory" ? loadFiles(activeServer.id, entry.path) : openFile(entry.path)}
                           disabled={isProvisioning || (entry.type === "file" && !isEditableFile(entry))}
                         >
-                          <span>{entry.type === "directory" ? "[dir]" : "[file]"} {entry.name}</span>
+                          <FileTypeIcon entry={entry} />
+                          <span className="fileName">{entry.name}</span>
                           <small>{entry.type === "file" ? formatBytes(entry.size) : ""}</small>
                         </button>
-                        <button className="iconDangerButton" onClick={() => deleteFileEntry(entry)} disabled={isProvisioning} title={`Delete ${entry.name}`}>X</button>
+                        <button className="iconDangerButton" onClick={() => deleteFileEntry(entry)} disabled={isProvisioning} title={`Delete ${entry.name}`} aria-label={`Delete ${entry.name}`}>
+                          <AppIcon name="x" />
+                        </button>
                       </article>
                     ))}
                   </div>
@@ -1329,8 +1855,10 @@ export default function App() {
                   </div>
                   <textarea value={editorText} onChange={(event) => { setEditorText(event.target.value); setDirty(true); }} disabled={isProvisioning || !selectedPath} spellCheck={false} />
                   <div className="buttonRow">
+                    {dirty && (
+                      <button className="secondaryButton" onClick={cancelFileEdit} disabled={isProvisioning || !selectedPath}>Cancel</button>
+                    )}
                     <button onClick={saveFile} disabled={isProvisioning || !selectedPath || !dirty}>Save</button>
-                    <span className="muted">Text files up to 2 MiB are supported. Binary editing is intentionally blocked.</span>
                   </div>
                 </section>
               </section>
@@ -1345,7 +1873,7 @@ export default function App() {
                       {!status ? "Checking server state" : status.docker.running ? "Stop server to edit mods" : "Mod changes enabled"}
                     </span>
                   </div>
-                  {!appState.modrinthApiConfigured && (
+                  {!effectiveAppState.modrinthApiConfigured && (
                     <section className="systemBanner accent">
                       <strong>Modrinth API key is not configured.</strong>
                       <span>Installed mod management still works. Add a key in Settings to search and install new mods.</span>
@@ -1354,22 +1882,30 @@ export default function App() {
                   <div className="modsToolbar">
                     <div className="segmentedControl">
                       <button className={modsView === "manager" ? "active" : ""} onClick={() => setModsView("manager")}>Installed</button>
-                      <button className={modsView === "search" ? "active" : ""} onClick={() => setModsView("search")} disabled={!appState.modrinthApiConfigured}>Search</button>
+                      <button className={modsView === "search" ? "active" : ""} onClick={() => setModsView("search")} disabled={!effectiveAppState.modrinthApiConfigured}>Search</button>
                     </div>
                     <input ref={modUploadRef} className="hiddenInput" type="file" accept=".jar" onChange={uploadMod} />
-                    <button onClick={() => modUploadRef.current?.click()} disabled={modsLocked}>Upload</button>
                     <span className="muted">Fabric {activeServer.loaderVersion || "loader unknown"} - Minecraft {activeServer.minecraftVersion || "version unknown"}</span>
                   </div>
 
                   {modsView === "manager" && (
                     <div className="mods">
-                      <button className="modRow addModRow" onClick={() => setModsView("search")} disabled={isProvisioning || !appState.modrinthApiConfigured}>
-                        <span className="addIcon">+</span>
-                        <div>
-                          <strong>Add mod</strong>
-                          <p>Search Modrinth for Fabric mods compatible with this server.</p>
-                        </div>
-                      </button>
+                      <div className="modActionGrid">
+                        <button className="modRow addModRow" onClick={() => setModsView("search")} disabled={isProvisioning || !effectiveAppState.modrinthApiConfigured}>
+                          <span className="addIcon"><AppIcon name="plus" /></span>
+                          <div>
+                            <strong>Add mod</strong>
+                            <p>Search Modrinth for compatible Fabric mods.</p>
+                          </div>
+                        </button>
+                        <button className="modRow addModRow" onClick={() => modUploadRef.current?.click()} disabled={modsLocked}>
+                          <span className="addIcon"><AppIcon name="fileUp" /></span>
+                          <div>
+                            <strong>Upload jar</strong>
+                            <p>Add a local Fabric mod file to this server.</p>
+                          </div>
+                        </button>
+                      </div>
                       {installedMods.length === 0 && (
                         <div className="emptyInline">No installed mods yet.</div>
                       )}
@@ -1397,8 +1933,8 @@ export default function App() {
                   {modsView === "search" && (
                     <>
                       <form onSubmit={searchMods} className="modSearch">
-                        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search compatible Fabric mods" disabled={isProvisioning || !appState.modrinthApiConfigured} />
-                        <button disabled={isProvisioning || isSearchingMods || !appState.modrinthApiConfigured || !query.trim()}>{isSearchingMods ? "Searching" : "Refresh"}</button>
+                        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search compatible Fabric mods" disabled={isProvisioning || !effectiveAppState.modrinthApiConfigured} />
+                        <button disabled={isProvisioning || isSearchingMods || !effectiveAppState.modrinthApiConfigured || !query.trim()}>{isSearchingMods ? "Searching" : "Refresh"}</button>
                       </form>
                       <div className="mods">
                         {isSearchingMods && Array.from({ length: 4 }, (_, index) => (
@@ -1420,7 +1956,7 @@ export default function App() {
                               <p>{mod.description}</p>
                               <small>{mod.downloads.toLocaleString()} downloads</small>
                             </div>
-                            <button onClick={() => installMod(mod.project_id, mod.title)} disabled={modsLocked || !appState.modrinthApiConfigured}>Install</button>
+                            <button onClick={() => installMod(mod.project_id, mod.title)} disabled={modsLocked || !effectiveAppState.modrinthApiConfigured}>Install</button>
                           </article>
                         ))}
                       </div>
@@ -1457,9 +1993,9 @@ export default function App() {
                     <dt>Log file</dt>
                     <dd>{status?.fileLogsAvailable ? "Available" : "Not found"}</dd>
                     <dt>Control</dt>
-                    <dd>{status?.controlAvailable ? "Docker container control enabled" : "Not configured"}</dd>
+                    <dd>{activeServerIsDemo ? "Demo runtime control enabled" : status?.controlAvailable ? "Docker container control enabled" : "Not configured"}</dd>
                   </dl>
-                  <ServerEditForm server={activeServer} versions={fabricVersions} totalMemory={appState.totalMemory} onSubmit={updateServer} disabled={isProvisioning} />
+                  <ServerEditForm server={activeServer} versions={fabricVersions} totalMemory={effectiveAppState.totalMemory} onSubmit={updateServer} disabled={isProvisioning} />
                 </section>
                 <DeleteServerPanel server={activeServer} onSubmit={deleteServer} disabled={isProvisioning} />
               </section>
@@ -1541,8 +2077,6 @@ function ResourcePanel({
   const cpu = latest?.cpuPercent ?? 0;
   const memoryUsage = latest?.memoryUsageBytes ?? 0;
   const configuredMemoryBytes = parseMaxMemoryGb(server.javaArgs) * 1024 * 1024 * 1024;
-  const memoryPercent = configuredMemoryBytes ? Math.round((memoryUsage / configuredMemoryBytes) * 100) : 0;
-  const sampleAge = latest ? Math.max(0, Math.round((Date.now() - latest.sampledAt) / 1000)) : null;
   const statusMessage = latest?.message
     || (!dockerSocketMounted
       ? "Docker socket is not mounted, so live container stats are unavailable."
@@ -1554,23 +2088,16 @@ function ResourcePanel({
     <section className="panel resourcePanel">
       <div className="panelHeader">
         <h2>Resource Usage</h2>
-        <span className="muted">{latest?.running ? "Live Docker stats" : "Waiting for running container"}</span>
       </div>
       <div className="resourceStats">
         <div className="resourceMetric">
           <span>Memory</span>
           <strong>{formatMegabytes(memoryUsage)} / {formatMegabytes(configuredMemoryBytes)}</strong>
-          <small>{memoryPercent}% of configured allocation</small>
         </div>
         <div className="resourceMetric">
           <span>CPU</span>
           <strong>{cpu.toFixed(1)}%</strong>
-          <small>{latest?.available ? "Docker container usage" : "Waiting for Docker stats"}</small>
         </div>
-      </div>
-      <div className="resourceMeta">
-        <span>Container allocation from {server.javaArgs?.match(/-Xmx\S+/)?.[0] || `-Xmx${parseMaxMemoryGb(server.javaArgs)}G`}</span>
-        <span>{sampleAge === null ? "Not sampled yet" : `Last sample ${sampleAge}s ago`}</span>
       </div>
       {!latest?.available && <p className="resourceMessage">{statusMessage}</p>}
     </section>
@@ -1599,13 +2126,45 @@ function ModrinthKeyForm({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   configured: boolean;
 }) {
+  const [editing, setEditing] = useState(!configured);
+
+  useEffect(() => {
+    setEditing(!configured);
+  }, [configured]);
+
+  function submitKey(event: FormEvent<HTMLFormElement>) {
+    onSubmit(event);
+    setEditing(false);
+  }
+
+  if (configured && !editing) {
+    return (
+      <div className="keyForm keyFormConfigured">
+        <div className="secretPreview" aria-label="Stored Modrinth API key">
+          <span className="settingsStatus ready">Configured</span>
+          <code aria-hidden="true">**** **** **** ****</code>
+        </div>
+        <button type="button" className="secondaryButton" onClick={() => setEditing(true)}>Replace key</button>
+      </div>
+    );
+  }
+
   return (
-    <form onSubmit={onSubmit} className="keyForm">
+    <form onSubmit={submitKey} className="keyForm">
       <label>
-        Modrinth API key
-        <input name="modrinthApiKey" type="password" placeholder={configured ? "Configured - enter a new key to replace" : "Paste API key"} required />
+        {configured ? "New Modrinth API key" : "Modrinth API key"}
+        <input
+          name="modrinthApiKey"
+          type="password"
+          autoComplete="off"
+          placeholder="Paste API key"
+          required
+        />
       </label>
-      <button>Save key</button>
+      <div className="keyFormActions">
+        {configured && <button type="button" className="secondaryButton" onClick={() => setEditing(false)}>Cancel</button>}
+        <button>{configured ? "Save replacement" : "Save key"}</button>
+      </div>
     </form>
   );
 }
@@ -1662,13 +2221,14 @@ function SchedulePage({
                       onClick={() => setCommandIds((ids) => ids.filter((candidate) => candidate !== id))}
                       aria-label="Remove command"
                     >
-                      X
+                      <AppIcon name="x" />
                     </button>
                   )}
                 </div>
               ))}
               <button type="button" className="secondaryButton" onClick={() => setCommandIds((ids) => [...ids, clientId()])}>
-                + Additional Command
+                <AppIcon name="plus" />
+                <span>Additional Command</span>
               </button>
             </div>
             <label className="checkLine">
@@ -1893,6 +2453,13 @@ function DeleteServerPanel({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   disabled?: boolean;
 }) {
+  const [confirmName, setConfirmName] = useState("");
+  const deleteConfirmed = confirmName === server.displayName;
+
+  useEffect(() => {
+    setConfirmName("");
+  }, [server.id]);
+
   return (
     <section className="panel dangerPanel">
       <h2>Delete Server</h2>
@@ -1901,13 +2468,19 @@ function DeleteServerPanel({
         <fieldset disabled={disabled}>
         <label>
           Type server name to confirm
-          <input name="confirmName" placeholder={server.displayName} required />
+          <input
+            name="confirmName"
+            placeholder={server.displayName}
+            value={confirmName}
+            onChange={(event) => setConfirmName(event.target.value)}
+            required
+          />
         </label>
         <label className="checkLine dangerCheck">
           <input name="deleteFiles" type="checkbox" />
           Also delete this server's files from disk
         </label>
-        <button className="dangerButton">Delete Server</button>
+        <button className="dangerButton" disabled={!deleteConfirmed}>Delete Server</button>
         </fieldset>
       </form>
     </section>
