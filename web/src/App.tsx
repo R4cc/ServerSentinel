@@ -21,6 +21,7 @@ type AppState = {
   servers: AttachedServer[];
   modrinthApiConfigured: boolean;
   dockerSocketMounted: boolean;
+  totalMemory: number;
 };
 
 type DockerStatus = {
@@ -75,13 +76,23 @@ type Notice = {
   text: string;
 };
 
+type ProvisionJob = {
+  id: string;
+  status: "running" | "succeeded" | "failed";
+  progress: number;
+  task: string;
+  server?: AttachedServer;
+  error?: string;
+};
+
 type ActivePage = "servers" | "server" | "settings" | "create";
 type ThemePreference = "light" | "dark" | "system";
 
 const emptyApp: AppState = {
   servers: [],
   modrinthApiConfigured: false,
-  dockerSocketMounted: false
+  dockerSocketMounted: false,
+  totalMemory: 0
 };
 
 const minecraftCommandSuggestions = [
@@ -234,6 +245,7 @@ export default function App() {
   const [fabricVersions, setFabricVersions] = useState<FabricVersions>({ game: [], loader: [], installer: [] });
   const [notice, setNotice] = useState("");
   const [notices, setNotices] = useState<Notice[]>([]);
+  const [provisionJob, setProvisionJob] = useState<ProvisionJob | null>(null);
   const [activePage, setActivePage] = useState<ActivePage>("server");
   const [activeTab, setActiveTab] = useState<"overview" | "files" | "mods" | "settings">("overview");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -241,6 +253,7 @@ export default function App() {
   const [systemDark, setSystemDark] = useState(() => window.matchMedia?.("(prefers-color-scheme: dark)").matches ?? false);
   const consoleRef = useRef<HTMLDivElement>(null);
   const darkMode = themePreference === "dark" || (themePreference === "system" && systemDark);
+  const isProvisioning = provisionJob?.status === "running";
 
   const activeServer = useMemo(
     () => appState.servers.find((server) => server.id === activeServerId) ?? appState.servers[0],
@@ -337,6 +350,7 @@ export default function App() {
   }
 
   async function refreshStatus(serverId = activeServer?.id) {
+    if (isProvisioning) return;
     if (!serverId) return;
     try {
       setStatus(await api<ServerStatus>(`/api/servers/${serverId}/status`));
@@ -345,12 +359,30 @@ export default function App() {
     }
   }
 
+  async function waitForProvisionJob(jobId: string) {
+    for (;;) {
+      const job = await api<ProvisionJob>(`/api/provision/${jobId}`);
+      setProvisionJob(job);
+      if (job.status === "succeeded") return job;
+      if (job.status === "failed") {
+        throw new Error(job.error || "Server setup failed");
+      }
+      await new Promise((resolve) => window.setTimeout(resolve, 700));
+    }
+  }
+
   async function attachServer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setNotice("");
     const form = new FormData(event.currentTarget);
+    setProvisionJob({
+      id: "local",
+      status: "running",
+      progress: 0,
+      task: "Submitting server setup"
+    });
     try {
-      const server = await api<AttachedServer>("/api/servers", {
+      const job = await api<ProvisionJob>("/api/servers/provision", {
         method: "POST",
         body: JSON.stringify({
           displayName: form.get("displayName"),
@@ -368,18 +400,28 @@ export default function App() {
           acceptEula: form.get("acceptEula") === "on"
         })
       });
+      setProvisionJob(job);
+      const completed = await waitForProvisionJob(job.id);
+      const server = completed.server;
+      if (!server) {
+        throw new Error("Server setup completed without returning server details");
+      }
       await refreshApp();
       setActiveServerId(server.id);
       setActivePage("server");
+      setActiveTab("overview");
       notify("success", `Created ${server.displayName}`);
+      window.setTimeout(() => setProvisionJob(null), 1200);
     } catch (error) {
       setNotice((error as Error).message);
       notify("error", (error as Error).message);
+      setProvisionJob((current) => current ? { ...current, status: "failed", task: "Server setup failed", error: (error as Error).message } : null);
     }
   }
 
   async function updateServer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isProvisioning) return;
     if (!activeServer) return;
     setNotice("");
     const form = new FormData(event.currentTarget);
@@ -425,6 +467,7 @@ export default function App() {
   }
 
   async function runContainerAction(action: "start" | "stop" | "restart") {
+    if (isProvisioning) return;
     if (!activeServer) return;
     setNotice("");
     try {
@@ -439,6 +482,7 @@ export default function App() {
 
   async function sendCommand(event: FormEvent) {
     event.preventDefault();
+    if (isProvisioning) return;
     if (!activeServer) return;
     const command = commandInput.trim().replace(/^\//, "");
     if (!command) return;
@@ -490,6 +534,7 @@ export default function App() {
   }
 
   async function loadFiles(serverId: string, path: string) {
+    if (isProvisioning) return;
     setNotice("");
     try {
       setListing(await api<FileListing>(`/api/servers/${serverId}/files?path=${encodeURIComponent(path)}`));
@@ -500,6 +545,7 @@ export default function App() {
   }
 
   async function openFile(path: string) {
+    if (isProvisioning) return;
     if (!activeServer) return;
     setNotice("");
     try {
@@ -515,6 +561,7 @@ export default function App() {
   }
 
   async function saveFile() {
+    if (isProvisioning) return;
     if (!activeServer) return;
     setNotice("");
     try {
@@ -534,6 +581,7 @@ export default function App() {
 
   async function searchMods(event: FormEvent) {
     event.preventDefault();
+    if (isProvisioning) return;
     setNotice("");
     try {
       const result = await api<{ hits: ModrinthHit[] }>(
@@ -547,6 +595,7 @@ export default function App() {
   }
 
   async function installMod(projectId: string, title: string) {
+    if (isProvisioning) return;
     if (!activeServer) return;
     setNotice("");
     try {
@@ -565,6 +614,7 @@ export default function App() {
 
   async function deleteServer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (isProvisioning) return;
     if (!activeServer) return;
     setNotice("");
     const form = new FormData(event.currentTarget);
@@ -599,18 +649,18 @@ export default function App() {
               <p>Fabric server control</p>
             </div>
           </div>
-          <button className="iconButton" onClick={() => setSidebarCollapsed((value) => !value)} aria-label="Toggle sidebar">
+          <button className="iconButton" onClick={() => setSidebarCollapsed((value) => !value)} aria-label="Toggle sidebar" disabled={isProvisioning}>
             <SidebarToggleIcon collapsed={sidebarCollapsed} />
           </button>
         </div>
         <nav className="sideNav">
-          <button className={activePage === "servers" || activePage === "create" ? "active" : ""} onClick={() => setActivePage("servers")}>
+          <button className={activePage === "servers" || activePage === "create" ? "active" : ""} onClick={() => setActivePage("servers")} disabled={isProvisioning}>
             <SidebarIcon name="servers" />
             <span>Servers</span>
           </button>
         </nav>
         <nav className="sideNav sideNavBottom">
-          <button className={activePage === "settings" ? "active" : ""} onClick={() => setActivePage("settings")}>
+          <button className={activePage === "settings" ? "active" : ""} onClick={() => setActivePage("settings")} disabled={isProvisioning}>
             <SidebarIcon name="settings" />
             <span>Settings</span>
           </button>
@@ -634,11 +684,15 @@ export default function App() {
             </p>
           </div>
           <div className="workspaceActions">
-            {activePage === "servers" && <button onClick={() => setActivePage("create")}>New server</button>}
-            {activePage === "create" && <button onClick={() => setActivePage("servers")}>Cancel</button>}
-            {activePage === "server" && activeServer && <button onClick={() => refreshStatus()}>Refresh</button>}
+            {activePage === "servers" && <button onClick={() => setActivePage("create")} disabled={isProvisioning}>New server</button>}
+            {activePage === "create" && <button onClick={() => setActivePage("servers")} disabled={isProvisioning}>Cancel</button>}
+            {activePage === "server" && activeServer && <button onClick={() => refreshStatus()} disabled={isProvisioning}>Refresh</button>}
           </div>
         </header>
+
+        {provisionJob && (
+          <ProvisionProgress job={provisionJob} />
+        )}
 
         {!appState.dockerSocketMounted && (
           <section className="systemBanner warning">
@@ -657,6 +711,7 @@ export default function App() {
                   <button
                     key={server.id}
                     className={`serverListItem ${server.id === activeServer?.id ? "active" : ""}`}
+                    disabled={isProvisioning}
                     onClick={() => {
                       setActiveServerId(server.id);
                       setActivePage("server");
@@ -671,7 +726,7 @@ export default function App() {
               <div className="emptyState">
                 <h2>No Servers Yet</h2>
                 <p>Create a Fabric server to start managing files, mods, and runtime control.</p>
-                <button onClick={() => setActivePage("create")}>Create Server</button>
+                <button onClick={() => setActivePage("create")} disabled={isProvisioning}>Create Server</button>
               </div>
             )}
           </section>
@@ -679,7 +734,13 @@ export default function App() {
 
         {activePage === "create" && (
           <section className="panel attachPanel">
-            <AttachForm onSubmit={attachServer} dockerSocketMounted={appState.dockerSocketMounted} versions={fabricVersions} />
+            <AttachForm
+              onSubmit={attachServer}
+              dockerSocketMounted={appState.dockerSocketMounted}
+              versions={fabricVersions}
+              totalMemory={appState.totalMemory}
+              provisioning={isProvisioning}
+            />
           </section>
         )}
 
@@ -765,10 +826,10 @@ export default function App() {
             </div>
 
             <nav className="tabs">
-              <button className={activeTab === "overview" ? "active" : ""} onClick={() => setActiveTab("overview")}>Overview</button>
-              <button className={activeTab === "files" ? "active" : ""} onClick={() => setActiveTab("files")}>Files</button>
-              <button className={activeTab === "mods" ? "active" : ""} onClick={() => setActiveTab("mods")}>Mods</button>
-              <button className={activeTab === "settings" ? "active" : ""} onClick={() => setActiveTab("settings")}>Server Settings</button>
+              <button className={activeTab === "overview" ? "active" : ""} onClick={() => setActiveTab("overview")} disabled={isProvisioning}>Overview</button>
+              <button className={activeTab === "files" ? "active" : ""} onClick={() => setActiveTab("files")} disabled={isProvisioning}>Files</button>
+              <button className={activeTab === "mods" ? "active" : ""} onClick={() => setActiveTab("mods")} disabled={isProvisioning}>Mods</button>
+              <button className={activeTab === "settings" ? "active" : ""} onClick={() => setActiveTab("settings")} disabled={isProvisioning}>Server Settings</button>
             </nav>
 
             {activeTab === "overview" && (
@@ -799,9 +860,9 @@ export default function App() {
                     </div>
                   </div>
                   <div className="buttonRow">
-                    <button onClick={() => runContainerAction("start")} disabled={!status?.controlAvailable || status.docker.running}>Start</button>
-                    <button onClick={() => runContainerAction("stop")} disabled={!status?.controlAvailable || !status.docker.running}>Stop</button>
-                    <button onClick={() => runContainerAction("restart")} disabled={!status?.controlAvailable}>Restart</button>
+                    <button onClick={() => runContainerAction("start")} disabled={isProvisioning || !status?.controlAvailable || status.docker.running}>Start</button>
+                    <button onClick={() => runContainerAction("stop")} disabled={isProvisioning || !status?.controlAvailable || !status.docker.running}>Stop</button>
+                    <button onClick={() => runContainerAction("restart")} disabled={isProvisioning || !status?.controlAvailable}>Restart</button>
                   </div>
                 </section>
 
@@ -825,7 +886,7 @@ export default function App() {
                           }}
                           onKeyDown={handleCommandKeyDown}
                           placeholder={status?.commandInputAvailable ? "Enter command" : "Console input unavailable"}
-                          disabled={!status?.commandInputAvailable}
+                          disabled={isProvisioning || !status?.commandInputAvailable}
                           spellCheck={false}
                           autoComplete="off"
                         />
@@ -847,7 +908,7 @@ export default function App() {
                           </div>
                         )}
                       </div>
-                      <button disabled={!status?.commandInputAvailable || !commandInput.trim()}>Send</button>
+                      <button disabled={isProvisioning || !status?.commandInputAvailable || !commandInput.trim()}>Send</button>
                     </form>
                   </div>
                   <p className="muted">
@@ -867,12 +928,12 @@ export default function App() {
                     <code>{listing.path}</code>
                   </div>
                   <div className="fileActions">
-                    <button onClick={() => loadFiles(activeServer.id, parentPath(listing.path))} disabled={listing.path === "/"}>Up</button>
-                    <button onClick={() => loadFiles(activeServer.id, listing.path)}>Refresh</button>
+                    <button onClick={() => loadFiles(activeServer.id, parentPath(listing.path))} disabled={isProvisioning || listing.path === "/"}>Up</button>
+                    <button onClick={() => loadFiles(activeServer.id, listing.path)} disabled={isProvisioning}>Refresh</button>
                   </div>
                   <div className="fileList">
                     {listing.entries.map((entry) => (
-                      <button key={entry.path} className="fileRow" onClick={() => entry.type === "directory" ? loadFiles(activeServer.id, entry.path) : openFile(entry.path)}>
+                      <button key={entry.path} className="fileRow" onClick={() => entry.type === "directory" ? loadFiles(activeServer.id, entry.path) : openFile(entry.path)} disabled={isProvisioning}>
                         <span>{entry.type === "directory" ? "[dir]" : "[file]"} {entry.name}</span>
                         <small>{entry.type === "file" ? formatBytes(entry.size) : ""}</small>
                       </button>
@@ -885,9 +946,9 @@ export default function App() {
                     <h2>Editor</h2>
                     <code>{selectedPath || "No file selected"}</code>
                   </div>
-                  <textarea value={editorText} onChange={(event) => { setEditorText(event.target.value); setDirty(true); }} disabled={!selectedPath} spellCheck={false} />
+                  <textarea value={editorText} onChange={(event) => { setEditorText(event.target.value); setDirty(true); }} disabled={isProvisioning || !selectedPath} spellCheck={false} />
                   <div className="buttonRow">
-                    <button onClick={saveFile} disabled={!selectedPath || !dirty}>Save</button>
+                    <button onClick={saveFile} disabled={isProvisioning || !selectedPath || !dirty}>Save</button>
                     <span className="muted">Text files up to 2 MiB are supported. Binary editing is intentionally blocked.</span>
                   </div>
                 </section>
@@ -910,9 +971,9 @@ export default function App() {
                     </section>
                   )}
                   <form onSubmit={searchMods} className="modSearch">
-                    <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Fabric mods" disabled={!appState.modrinthApiConfigured} />
-                    <input value={gameVersion} onChange={(event) => setGameVersion(event.target.value)} placeholder="Minecraft version" disabled={!appState.modrinthApiConfigured} />
-                    <button disabled={!appState.modrinthApiConfigured || !query.trim() || !gameVersion.trim()}>Search</button>
+                    <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Fabric mods" disabled={isProvisioning || !appState.modrinthApiConfigured} />
+                    <input value={gameVersion} onChange={(event) => setGameVersion(event.target.value)} placeholder="Minecraft version" disabled={isProvisioning || !appState.modrinthApiConfigured} />
+                    <button disabled={isProvisioning || !appState.modrinthApiConfigured || !query.trim() || !gameVersion.trim()}>Search</button>
                   </form>
                   <div className="mods">
                     {mods.map((mod) => (
@@ -923,7 +984,7 @@ export default function App() {
                           <p>{mod.description}</p>
                           <small>{mod.downloads.toLocaleString()} downloads</small>
                         </div>
-                        <button onClick={() => installMod(mod.project_id, mod.title)} disabled={!appState.modrinthApiConfigured}>Install</button>
+                        <button onClick={() => installMod(mod.project_id, mod.title)} disabled={isProvisioning || !appState.modrinthApiConfigured}>Install</button>
                       </article>
                     ))}
                   </div>
@@ -953,9 +1014,9 @@ export default function App() {
                     <dt>Control</dt>
                     <dd>{status?.controlAvailable ? "Docker container control enabled" : "Not configured"}</dd>
                   </dl>
-                  <ServerEditForm server={activeServer} versions={fabricVersions} onSubmit={updateServer} />
+                  <ServerEditForm server={activeServer} versions={fabricVersions} totalMemory={appState.totalMemory} onSubmit={updateServer} disabled={isProvisioning} />
                 </section>
-                <DeleteServerPanel server={activeServer} onSubmit={deleteServer} />
+                <DeleteServerPanel server={activeServer} onSubmit={deleteServer} disabled={isProvisioning} />
               </section>
             )}
           </>
@@ -972,6 +1033,21 @@ function Notifications({ notices }: { notices: Notice[] }) {
         <div key={notice.id} className={`toast ${notice.type}`}>{notice.text}</div>
       ))}
     </div>
+  );
+}
+
+function ProvisionProgress({ job }: { job: ProvisionJob }) {
+  return (
+    <section className={`provisionPanel ${job.status}`}>
+      <div>
+        <strong>{job.status === "failed" ? "Setup stopped" : job.status === "succeeded" ? "Setup complete" : "Setting up server"}</strong>
+        <span>{job.error || job.task}</span>
+      </div>
+      <div className="progressTrack" aria-label="Server setup progress" aria-valuemin={0} aria-valuemax={100} aria-valuenow={job.progress} role="progressbar">
+        <span style={{ width: `${Math.max(0, Math.min(100, job.progress))}%` }} />
+      </div>
+      <small>{Math.round(job.progress)}%</small>
+    </section>
   );
 }
 
@@ -996,14 +1072,24 @@ function ModrinthKeyForm({
 function ServerEditForm({
   server,
   versions,
-  onSubmit
+  totalMemory,
+  onSubmit,
+  disabled = false
 }: {
   server: AttachedServer;
   versions: FabricVersions;
+  totalMemory: number;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  disabled?: boolean;
 }) {
+  const totalRamGb = totalMemory ? Math.round(totalMemory / (1024 * 1024 * 1024)) : 16;
+  const match = (server.javaArgs || "").match(/-Xmx(\d+)G/);
+  const initialMemory = match ? parseInt(match[1], 10) : 4;
+  const [memoryGb, setMemoryGb] = useState(() => Math.min(initialMemory, totalRamGb));
+
   return (
     <form onSubmit={onSubmit} className="attachForm">
+      <fieldset disabled={disabled}>
       <label>
         Display name
         <input name="displayName" defaultValue={server.displayName} required />
@@ -1034,14 +1120,50 @@ function ServerEditForm({
           ))}
         </select>
       </label>
-      <label>
-        Memory
-        <select name="javaArgs" defaultValue={server.javaArgs || "-Xms2G -Xmx4G"}>
-          <option value="-Xms1G -Xmx2G">Small - 2 GB max</option>
-          <option value="-Xms2G -Xmx4G">Standard - 4 GB max</option>
-          <option value="-Xms4G -Xmx8G">Large - 8 GB max</option>
-        </select>
-      </label>
+      <div className="memorySelector">
+        <div className="memorySelectorHeader">
+          <label>Memory</label>
+          <span className="totalRamLabel">Host Total: {totalRamGb} GB</span>
+        </div>
+        <div className="memorySelectorControls">
+          <input
+            type="range"
+            min="1"
+            max={totalRamGb}
+            value={memoryGb}
+            onChange={(e) => setMemoryGb(Number(e.target.value))}
+            className="memorySlider"
+          />
+          <div className="memoryInputWrap">
+            <input
+              type="number"
+              min="1"
+              max={totalRamGb}
+              value={memoryGb}
+              onChange={(e) => {
+                const val = Number(e.target.value);
+                if (val >= 1 && val <= totalRamGb) {
+                  setMemoryGb(val);
+                } else if (val < 1) {
+                  setMemoryGb(1);
+                } else if (val > totalRamGb) {
+                  setMemoryGb(totalRamGb);
+                }
+              }}
+              className="memoryNumberInput"
+            />
+            <span className="unit">GB</span>
+          </div>
+        </div>
+        <input type="hidden" name="javaArgs" value={`-Xms${Math.max(1, Math.floor(memoryGb / 2))}G -Xmx${memoryGb}G`} />
+        <p className="safelyAllocateTip">
+          {memoryGb > totalRamGb * 0.8 ? (
+            <span className="warn">⚠️ Allocating over 80% of RAM may cause host instability.</span>
+          ) : (
+            <span className="ok">✓ Safe allocation level for this host.</span>
+          )}
+        </p>
+      </div>
       <label>
         Docker runtime image
         <select name="dockerImage" defaultValue={server.dockerImage || "eclipse-temurin:21-jre"}>
@@ -1063,22 +1185,26 @@ function ServerEditForm({
         <input name="dockerPorts" defaultValue={server.dockerPorts || "25565:25565/tcp"} />
       </label>
       <button>Save server settings</button>
+      </fieldset>
     </form>
   );
 }
 
 function DeleteServerPanel({
   server,
-  onSubmit
+  onSubmit,
+  disabled = false
 }: {
   server: AttachedServer;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  disabled?: boolean;
 }) {
   return (
     <section className="panel dangerPanel">
       <h2>Delete Server</h2>
       <p className="muted">This removes the server from ServerSentinel. File deletion is optional and cannot be undone.</p>
       <form onSubmit={onSubmit} className="attachForm">
+        <fieldset disabled={disabled}>
         <label>
           Type server name to confirm
           <input name="confirmName" placeholder={server.displayName} required />
@@ -1088,6 +1214,7 @@ function DeleteServerPanel({
           Also delete this server's files from disk
         </label>
         <button className="dangerButton">Delete Server</button>
+        </fieldset>
       </form>
     </section>
   );
@@ -1096,11 +1223,15 @@ function DeleteServerPanel({
 function AttachForm({
   onSubmit,
   dockerSocketMounted,
-  versions
+  versions,
+  totalMemory: _totalMemory,
+  provisioning = false
 }: {
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   dockerSocketMounted: boolean;
   versions: FabricVersions;
+  totalMemory?: number;
+  provisioning?: boolean;
 }) {
   const runtimeImages = [
     { value: "eclipse-temurin:21-jre", label: "Java 21 runtime (recommended)" },
@@ -1115,6 +1246,7 @@ function AttachForm({
 
   return (
     <form onSubmit={onSubmit} className="attachForm">
+      <fieldset disabled={provisioning}>
       <label>
         Display name
         <input name="displayName" placeholder="Survival" required />
@@ -1192,7 +1324,8 @@ function AttachForm({
       <p className="muted">
         Docker socket is {dockerSocketMounted ? "mounted; ServerSentinel can create/start a separate runtime container." : "not mounted; server files will be created, but runtime control needs Docker."}
       </p>
-      <button>Create Server</button>
+      <button>{provisioning ? "Setting up..." : "Create Server"}</button>
+      </fieldset>
     </form>
   );
 }

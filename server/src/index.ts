@@ -11,6 +11,7 @@ import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 import { fileURLToPath } from "node:url";
 import { fetch } from "undici";
+import { totalmem } from "node:os";
 
 const config = {
   configDir: resolve(process.env.SERVERSENTINEL_CONFIG_DIR ?? "/config"),
@@ -62,10 +63,37 @@ type DockerExecInspect = {
   ExitCode?: number | null;
 };
 
+type CreateServerInput = {
+  displayName?: string;
+  minecraftVersion?: string;
+  loaderVersion?: string;
+  installerVersion?: string;
+  serverJar?: string;
+  dockerContainer?: string;
+  dockerImage?: string;
+  dockerPorts?: string;
+  javaArgs?: string;
+  acceptEula?: boolean;
+  serverPort?: string;
+};
+
+type ProvisionJob = {
+  id: string;
+  status: "running" | "succeeded" | "failed";
+  progress: number;
+  task: string;
+  server?: PublicServer;
+  error?: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type Client = {
   send: (payload: string) => void;
   readyState: number;
 };
+
+const provisionJobs = new Map<string, ProvisionJob>();
 
 function publicServer(server: AttachedServer): PublicServer {
   return {
@@ -725,16 +753,136 @@ async function downloadFabricServerJar(server: AttachedServer) {
   );
 }
 
-async function createServerFiles(server: AttachedServer, acceptEula: boolean, serverPort: string) {
+async function createServerFiles(
+  server: AttachedServer,
+  acceptEula: boolean,
+  serverPort: string,
+  report?: (progress: number, task: string) => void
+) {
+  report?.(35, "Creating server folders");
   await mkdir(server.serverDir, { recursive: true });
   await mkdir(ensureInsideServer(server, "mods"), { recursive: true });
   await mkdir(ensureInsideServer(server, "logs"), { recursive: true });
+  report?.(45, "Downloading Fabric server launcher");
   await downloadFabricServerJar(server);
+  report?.(65, "Writing Minecraft configuration");
   await writeFile(ensureInsideServer(server, "server.properties"), `server-port=${serverPort}\n`, { flag: "wx" }).catch((error: unknown) => {
     if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
   });
   await writeFile(ensureInsideServer(server, "eula.txt"), `# Managed by ServerSentinel\n# Only set true if you accept the Minecraft EULA.\neula=${acceptEula ? "true" : "false"}\n`, "utf8");
   await writeFile(ensureInsideServer(server, "logs/latest.log"), "", { flag: "a" });
+}
+
+async function createManagedServer(input: CreateServerInput, report?: (progress: number, task: string) => void) {
+  report?.(5, "Validating server settings");
+  const displayName = input.displayName?.trim();
+  const minecraftVersion = input.minecraftVersion?.trim();
+  if (!displayName || !minecraftVersion) {
+    throw new Error("Display name and Minecraft version are required");
+  }
+  if (!input.acceptEula) {
+    throw new Error("You must confirm Minecraft EULA acceptance to create a runnable server");
+  }
+
+  report?.(15, "Reserving server storage");
+  await mkdir(config.serversDir, { recursive: true });
+  const storageBase = slugify(displayName);
+  let storageName = storageBase;
+  let counter = 2;
+  while (existsSync(resolve(config.serversDir, storageName))) {
+    storageName = `${storageBase}-${counter}`;
+    counter += 1;
+  }
+
+  report?.(25, "Resolving Fabric versions");
+  const resolvedServerDir = resolve(config.serversDir, storageName);
+  const loaderVersion = input.loaderVersion?.trim() || await latestFabricVersion("loader");
+  const installerVersion = input.installerVersion?.trim() || await latestFabricVersion("installer");
+  const serverJar = input.serverJar?.trim() || "fabric-server-launch.jar";
+  const serverPort = input.serverPort?.trim() || "25565";
+  if (!/^\d{1,5}$/.test(serverPort) || Number(serverPort) < 1 || Number(serverPort) > 65535) {
+    throw new Error("Server port must be a valid TCP port");
+  }
+
+  const now = new Date().toISOString();
+  const server: AttachedServer = {
+    id: randomUUID(),
+    displayName,
+    serverDir: resolvedServerDir,
+    storageName,
+    minecraftVersion,
+    loaderVersion,
+    installerVersion,
+    serverJar,
+    dockerContainer: input.dockerContainer?.trim() || defaultContainerName(displayName),
+    dockerImage: input.dockerImage?.trim() || "eclipse-temurin:21-jre",
+    dockerMountSource: config.serversDockerVolume || resolvedServerDir,
+    dockerWorkingDir: config.serversDockerVolume ? `/data/servers/${storageName}` : undefined,
+    dockerPorts: input.dockerPorts?.trim() || `${serverPort}:${serverPort}/tcp`,
+    javaArgs: input.javaArgs?.trim() || "-Xms2G -Xmx4G",
+    serverType: "fabric",
+    createdAt: now,
+    updatedAt: now
+  };
+
+  await createServerFiles(server, input.acceptEula, serverPort, report);
+  if (dockerAvailable()) {
+    report?.(78, "Pulling runtime image and creating Docker container");
+    await ensureDockerContainer(server);
+  } else {
+    report?.(78, "Skipping Docker container creation; Docker socket is not mounted");
+  }
+
+  report?.(92, "Saving server registration");
+  const servers = await readServers();
+  servers.push(server);
+  await writeServers(servers);
+  report?.(100, "Server setup complete");
+  return server;
+}
+
+function updateProvisionJob(id: string, patch: Partial<ProvisionJob>) {
+  const current = provisionJobs.get(id);
+  if (!current) return;
+  provisionJobs.set(id, {
+    ...current,
+    ...patch,
+    updatedAt: new Date().toISOString()
+  });
+}
+
+function startProvisionJob(input: CreateServerInput) {
+  const id = randomUUID();
+  const now = new Date().toISOString();
+  provisionJobs.set(id, {
+    id,
+    status: "running",
+    progress: 0,
+    task: "Queued server setup",
+    createdAt: now,
+    updatedAt: now
+  });
+
+  void createManagedServer(input, (progress, task) => {
+    updateProvisionJob(id, { progress, task });
+  }).then((server) => {
+    updateProvisionJob(id, {
+      status: "succeeded",
+      progress: 100,
+      task: "Server setup complete",
+      server: publicServer(server)
+    });
+    setTimeout(() => provisionJobs.delete(id), 10 * 60 * 1000).unref();
+  }).catch((error: unknown) => {
+    updateProvisionJob(id, {
+      status: "failed",
+      error: error instanceof Error ? error.message : "Server setup failed",
+      task: "Server setup failed"
+    });
+    setTimeout(() => provisionJobs.delete(id), 10 * 60 * 1000).unref();
+  });
+
+  return provisionJobs.get(id)!;
 }
 
 const app = Fastify({ logger: true });
@@ -745,7 +893,8 @@ app.get("/api/app", async () => {
   return {
     servers: servers.map(publicServer),
     modrinthApiConfigured: Boolean(await modrinthApiKey()),
-    dockerSocketMounted: dockerAvailable()
+    dockerSocketMounted: dockerAvailable(),
+    totalMemory: totalmem()
   };
 });
 
@@ -774,72 +923,23 @@ app.get("/api/fabric/versions", async () => {
 });
 
 app.post<{
-  Body: {
-    displayName?: string;
-    minecraftVersion?: string;
-    loaderVersion?: string;
-    installerVersion?: string;
-    serverJar?: string;
-    dockerContainer?: string;
-    dockerImage?: string;
-    dockerPorts?: string;
-    javaArgs?: string;
-    acceptEula?: boolean;
-    serverPort?: string;
-  };
+  Body: CreateServerInput;
 }>("/api/servers", async (request) => {
-  const displayName = request.body.displayName?.trim();
-  const minecraftVersion = request.body.minecraftVersion?.trim();
-  if (!displayName || !minecraftVersion) {
-    throw new Error("Display name and Minecraft version are required");
-  }
-  if (!request.body.acceptEula) {
-    throw new Error("You must confirm Minecraft EULA acceptance to create a runnable server");
-  }
-
-  await mkdir(config.serversDir, { recursive: true });
-  const storageBase = slugify(displayName);
-  let storageName = storageBase;
-  let counter = 2;
-  while (existsSync(resolve(config.serversDir, storageName))) {
-    storageName = `${storageBase}-${counter}`;
-    counter += 1;
-  }
-
-  const resolvedServerDir = resolve(config.serversDir, storageName);
-  const loaderVersion = request.body.loaderVersion?.trim() || await latestFabricVersion("loader");
-  const installerVersion = request.body.installerVersion?.trim() || await latestFabricVersion("installer");
-  const serverJar = request.body.serverJar?.trim() || "fabric-server-launch.jar";
-  const serverPort = request.body.serverPort?.trim() || "25565";
-  if (!/^\d{1,5}$/.test(serverPort) || Number(serverPort) < 1 || Number(serverPort) > 65535) {
-    throw new Error("Server port must be a valid TCP port");
-  }
-
-  const now = new Date().toISOString();
-  const server: AttachedServer = {
-    id: randomUUID(),
-    displayName,
-    serverDir: resolvedServerDir,
-    storageName,
-    minecraftVersion,
-    loaderVersion,
-    installerVersion,
-    serverJar,
-    dockerContainer: request.body.dockerContainer?.trim() || defaultContainerName(displayName),
-    dockerImage: request.body.dockerImage?.trim() || "eclipse-temurin:21-jre",
-    dockerMountSource: config.serversDockerVolume || resolvedServerDir,
-    dockerWorkingDir: config.serversDockerVolume ? `/data/servers/${storageName}` : undefined,
-    dockerPorts: request.body.dockerPorts?.trim() || `${serverPort}:${serverPort}/tcp`,
-    javaArgs: request.body.javaArgs?.trim() || "-Xms2G -Xmx4G",
-    serverType: "fabric",
-    createdAt: now,
-    updatedAt: now
-  };
-  await createServerFiles(server, request.body.acceptEula, serverPort);
-  const servers = await readServers();
-  servers.push(server);
-  await writeServers(servers);
+  const server = await createManagedServer(request.body);
   return publicServer(server);
+});
+
+app.post<{ Body: CreateServerInput }>("/api/servers/provision", async (request) => {
+  const job = startProvisionJob(request.body);
+  return job;
+});
+
+app.get<{ Params: { id: string } }>("/api/provision/:id", async (request, reply) => {
+  const job = provisionJobs.get(request.params.id);
+  if (!job) {
+    return reply.code(404).send({ error: "Provisioning job not found" });
+  }
+  return job;
 });
 
 app.put<{

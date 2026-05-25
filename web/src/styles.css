@@ -600,6 +600,61 @@ code {
   color: var(--swiss-white);
 }
 
+.provisionPanel {
+  border: var(--border-strong) solid var(--accent);
+  border-radius: var(--radius-lg);
+  background:
+    linear-gradient(90deg, var(--sentinel-accent-soft), var(--surface-raised));
+  padding: var(--space-4);
+  margin-bottom: var(--space-4);
+  display: grid;
+  grid-template-columns: minmax(220px, 0.42fr) minmax(160px, 1fr) auto;
+  gap: var(--space-4);
+  align-items: center;
+}
+
+.provisionPanel strong,
+.provisionPanel small {
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.provisionPanel span {
+  display: block;
+  margin-top: var(--space-1);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.provisionPanel.failed {
+  border-color: var(--sentinel-danger);
+}
+
+.provisionPanel.failed strong,
+.provisionPanel.failed small {
+  color: var(--sentinel-danger);
+}
+
+.progressTrack {
+  height: 14px;
+  border: var(--border-strong) solid var(--border);
+  border-radius: 999px;
+  background:
+    repeating-linear-gradient(45deg, rgb(0 0 0 / 0.08) 0 1px, transparent 1px 8px),
+    var(--surface);
+  overflow: hidden;
+}
+
+.progressTrack span {
+  height: 100%;
+  min-width: 4px;
+  margin: 0;
+  background: var(--accent);
+  transition: width 200ms linear;
+}
+
 .toastRegion {
   position: fixed;
   top: var(--space-4);
@@ -756,6 +811,15 @@ code {
 .attachForm {
   display: grid;
   gap: var(--space-3);
+}
+
+.attachForm fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
 }
 
 .attachForm label {
@@ -1241,6 +1305,11 @@ code {
     grid-template-columns: 1fr;
   }
 
+  .provisionPanel {
+    grid-template-columns: 1fr;
+    gap: var(--space-3);
+  }
+
   .overviewPage,
   .filesPage,
   .settingsPage {
@@ -1313,4 +1382,81 @@ code {
   .console {
     height: 360px;
   }
+}
+
+/* Memory Selector Styles */
+.memorySelector {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+.memorySelectorHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.totalRamLabel {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-muted);
+}
+
+.memorySelectorControls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+}
+
+.memorySlider {
+  flex: 1;
+  height: 8px;
+  background: var(--surface-muted);
+  border: var(--border-strong) solid var(--border);
+  border-radius: var(--radius-sm);
+  outline: none;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.memoryInputWrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100px;
+  min-width: 100px;
+  position: relative;
+}
+
+.memoryNumberInput {
+  width: 100%;
+  padding-right: 32px !important;
+  text-align: right;
+}
+
+.memoryInputWrap .unit {
+  position: absolute;
+  right: 12px;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.safelyAllocateTip {
+  margin: 0;
+  font-size: 11px;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.safelyAllocateTip .warn {
+  color: var(--sentinel-danger);
+}
+
+.safelyAllocateTip .ok {
+  color: var(--sentinel-success);
 }
