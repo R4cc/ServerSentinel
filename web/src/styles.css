@@ -430,6 +430,7 @@ code {
   font-size: clamp(34px, 7vw, 88px);
   line-height: 0.9;
   letter-spacing: -0.05em;
+  overflow-wrap: break-word;
 }
 
 .activeServerStrip {
@@ -1272,6 +1273,14 @@ code {
 
   .workspaceHeader h2 {
     font-size: clamp(34px, 14vw, 58px);
+  }
+
+  .emptyState {
+    padding: var(--space-4);
+  }
+
+  .emptyState h2 {
+    font-size: clamp(24px, 8vw, 44px);
   }
 
   .workspaceActions,

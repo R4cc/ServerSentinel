@@ -75,7 +75,7 @@ type Notice = {
   text: string;
 };
 
-type ActivePage = "servers" | "server" | "settings";
+type ActivePage = "servers" | "server" | "settings" | "create";
 type ThemePreference = "light" | "dark" | "system";
 
 const emptyApp: AppState = {
@@ -230,7 +230,6 @@ export default function App() {
   const [fabricVersions, setFabricVersions] = useState<FabricVersions>({ game: [], loader: [], installer: [] });
   const [notice, setNotice] = useState("");
   const [notices, setNotices] = useState<Notice[]>([]);
-  const [showCreate, setShowCreate] = useState(false);
   const [activePage, setActivePage] = useState<ActivePage>("server");
   const [activeTab, setActiveTab] = useState<"overview" | "files" | "mods" | "settings">("overview");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -367,7 +366,6 @@ export default function App() {
       });
       await refreshApp();
       setActiveServerId(server.id);
-      setShowCreate(false);
       setActivePage("server");
       notify("success", `Created ${server.displayName}`);
     } catch (error) {
@@ -602,7 +600,7 @@ export default function App() {
           </button>
         </div>
         <nav className="sideNav">
-          <button className={activePage === "servers" ? "active" : ""} onClick={() => setActivePage("servers")}>
+          <button className={activePage === "servers" || activePage === "create" ? "active" : ""} onClick={() => setActivePage("servers")}>
             <SidebarIcon name="servers" />
             <span>Servers</span>
           </button>
@@ -620,17 +618,20 @@ export default function App() {
           <div>
             <h2>
               {activePage === "servers" && "Servers"}
+              {activePage === "create" && "New Server"}
               {activePage === "server" && (activeServer?.displayName ?? "No Server Selected")}
               {activePage === "settings" && "Settings"}
             </h2>
             <p>
               {activePage === "servers" && "Create, select, and review managed Fabric servers."}
+              {activePage === "create" && "Configure and launch a new Fabric server container."}
               {activePage === "server" && (activeServer ? "Monitor runtime, logs, files, and mods." : "Create a server to begin.")}
               {activePage === "settings" && "App-wide preferences and integrations."}
             </p>
           </div>
           <div className="workspaceActions">
-            {activePage === "servers" && <button onClick={() => setShowCreate((value) => !value)}>{showCreate ? "Hide create" : "New server"}</button>}
+            {activePage === "servers" && <button onClick={() => setActivePage("create")}>New server</button>}
+            {activePage === "create" && <button onClick={() => setActivePage("servers")}>Cancel</button>}
             {activePage === "server" && activeServer && <button onClick={() => refreshStatus()}>Refresh</button>}
           </div>
         </header>
@@ -646,37 +647,35 @@ export default function App() {
 
         {activePage === "servers" && (
           <section className="pageStack">
-            <section className="serverList">
-              {appState.servers.map((server) => (
-                <button
-                  key={server.id}
-                  className={`serverListItem ${server.id === activeServer?.id ? "active" : ""}`}
-                  onClick={() => {
-                    setActiveServerId(server.id);
-                    setActivePage("server");
-                  }}
-                >
-                  <strong>{server.displayName}</strong>
-                  <span>{server.minecraftVersion || "Version unknown"} · Fabric</span>
-                </button>
-              ))}
-              {!appState.servers.length && (
-                <div className="emptyState">
-                  <h2>No Servers Yet</h2>
-                  <p>Create a Fabric server to start managing files, mods, and runtime control.</p>
-                  <button onClick={() => setShowCreate(true)}>Create Server</button>
-                </div>
-              )}
-            </section>
-            {showCreate && (
-              <section className="panel attachPanel">
-                <div className="panelHeader">
-                  <h2>Create Fabric Server</h2>
-                  <button onClick={() => setShowCreate(false)}>Close</button>
-                </div>
-                <AttachForm onSubmit={attachServer} dockerSocketMounted={appState.dockerSocketMounted} versions={fabricVersions} />
+            {appState.servers.length > 0 ? (
+              <section className="serverList">
+                {appState.servers.map((server) => (
+                  <button
+                    key={server.id}
+                    className={`serverListItem ${server.id === activeServer?.id ? "active" : ""}`}
+                    onClick={() => {
+                      setActiveServerId(server.id);
+                      setActivePage("server");
+                    }}
+                  >
+                    <strong>{server.displayName}</strong>
+                    <span>{server.minecraftVersion || "Version unknown"} · Fabric</span>
+                  </button>
+                ))}
               </section>
+            ) : (
+              <div className="emptyState">
+                <h2>No Servers Yet</h2>
+                <p>Create a Fabric server to start managing files, mods, and runtime control.</p>
+                <button onClick={() => setActivePage("create")}>Create Server</button>
+              </div>
             )}
+          </section>
+        )}
+
+        {activePage === "create" && (
+          <section className="panel attachPanel">
+            <AttachForm onSubmit={attachServer} dockerSocketMounted={appState.dockerSocketMounted} versions={fabricVersions} />
           </section>
         )}
 
