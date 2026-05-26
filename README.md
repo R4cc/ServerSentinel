@@ -1,4 +1,4 @@
-# ServerSentinel
+# serverSENTINEL
 
 ServerSentinel is a Dockerized, single-user WebUI for creating and managing Fabric Minecraft servers.
 
