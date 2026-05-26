@@ -6,6 +6,9 @@ NOTE: This project is entirely coded with AI and it's recommended to only be use
 
 This MVP intentionally has no authentication, no multi-user model, and no database.
 
+<img width="2652" height="1799" alt="image" src="https://github.com/user-attachments/assets/191c1f82-c15c-4392-a78b-758e5f820fe5" />
+
+
 ## What Works
 
 Without Docker socket access:
