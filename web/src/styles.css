@@ -2180,6 +2180,10 @@ button .buttonIcon {
     var(--surface-muted);
 }
 
+.modRow.incompatible {
+  border-color: color-mix(in srgb, var(--sentinel-danger) 52%, var(--border));
+}
+
 .modRow img {
   width: 52px;
   height: 52px;
@@ -2283,9 +2287,76 @@ button .buttonIcon {
   margin: var(--space-1) 0;
 }
 
+.modRow .compatibilityReason {
+  color: var(--sentinel-danger);
+  font-weight: 800;
+}
+
 .modRow small {
   color: var(--text-soft);
   font-weight: 800;
+}
+
+.modTitleLine {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.compatibilityBadge {
+  border: var(--border-strong) solid currentColor;
+  border-radius: var(--radius-sm);
+  padding: 3px 7px;
+  font-size: 11px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.compatibilityBadge.ok {
+  color: var(--sentinel-success);
+}
+
+.compatibilityBadge.unknown {
+  color: var(--sentinel-warning);
+}
+
+.compatibilityBadge.danger {
+  color: var(--sentinel-danger);
+}
+
+details.compatibilityBadge {
+  cursor: pointer;
+  text-transform: none;
+}
+
+details.compatibilityBadge summary {
+  text-transform: uppercase;
+}
+
+details.compatibilityBadge p {
+  max-width: 440px;
+  margin-top: var(--space-2);
+  color: currentColor;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.forceInstallWarning {
+  border: var(--border-strong) solid var(--sentinel-danger);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  margin-top: var(--space-3);
+  background: color-mix(in srgb, var(--surface) 84%, var(--sentinel-danger) 16%);
+}
+
+.forceInstallWarning strong {
+  color: var(--sentinel-danger);
+}
+
+.forceInstallWarning .buttonRow {
+  justify-content: start;
+  margin-top: var(--space-2);
 }
 
 .modActions {
@@ -2311,6 +2382,16 @@ button .buttonIcon {
   padding: var(--space-4);
   color: var(--text-muted);
   font-weight: 800;
+}
+
+.emptyInline strong,
+.emptyInline span {
+  display: block;
+}
+
+.emptyInline strong {
+  color: var(--text);
+  margin-bottom: var(--space-1);
 }
 
 .schedulePage {
