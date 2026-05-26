@@ -512,8 +512,8 @@ function runtimeTone(status: ServerStatus | null, dockerSocketMounted: boolean) 
   return status.docker.running ? "running" : "stopped";
 }
 
-function SidebarIcon({ name }: { name: "servers" | "settings" }) {
-  if (name === "servers") {
+function SidebarIcon({ name }: { name: "overview" | "console" | "files" | "mods" | "schedule" | "settings" }) {
+  if (name === "overview") {
     return (
       <svg className="sideIcon" viewBox="0 0 24 24" aria-hidden="true">
         <rect x="4" y="5" width="16" height="4" rx="1.5" />
@@ -522,6 +522,43 @@ function SidebarIcon({ name }: { name: "servers" | "settings" }) {
         <circle cx="7" cy="7" r="0.8" />
         <circle cx="7" cy="12" r="0.8" />
         <circle cx="7" cy="17" r="0.8" />
+      </svg>
+    );
+  }
+  if (name === "console") {
+    return (
+      <svg className="sideIcon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M4 5h16v14H4z" />
+        <path d="m8 10 3 2-3 2" />
+        <path d="M13 15h4" />
+      </svg>
+    );
+  }
+  if (name === "files") {
+    return (
+      <svg className="sideIcon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M3 7h7l2 2h9v10H3z" />
+        <path d="M3 7V5h7l2 2" />
+      </svg>
+    );
+  }
+  if (name === "mods") {
+    return (
+      <svg className="sideIcon" viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M8 3h8v4h4v10h-4v4H8v-4H4V7h4z" />
+        <path d="M10 10h4" />
+        <path d="M10 14h4" />
+      </svg>
+    );
+  }
+  if (name === "schedule") {
+    return (
+      <svg className="sideIcon" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="4" y="5" width="16" height="15" rx="1.5" />
+        <path d="M8 3v4" />
+        <path d="M16 3v4" />
+        <path d="M4 10h16" />
+        <path d="M9 15h3l2-2" />
       </svg>
     );
   }
@@ -1858,36 +1895,59 @@ export default function App() {
           </button>
         </div>
         <nav className="sideNav">
-          <button className={activePage === "servers" || activePage === "create" ? "active" : ""} onClick={() => setActivePage("servers")} disabled={isProvisioning}>
-            <SidebarIcon name="servers" />
-            <span>Servers</span>
-          </button>
-          <label className="serverPicker">
-            <small>Active server</small>
-            <select
-              value={activeServerId}
-              onChange={(event) => {
-                setActiveServerId(event.target.value);
-                if (event.target.value) setActivePage("overview");
-              }}
-              disabled={isProvisioning || effectiveAppState.servers.length === 0}
+          <div className="serverPickerRow">
+            <label className="serverPicker">
+              <small>Active server</small>
+              <select
+                value={activeServerId}
+                onChange={(event) => {
+                  setActiveServerId(event.target.value);
+                  if (event.target.value) setActivePage("overview");
+                }}
+                disabled={isProvisioning || effectiveAppState.servers.length === 0}
+              >
+                <option value="">Select server</option>
+                {effectiveAppState.servers.map((server) => (
+                  <option key={server.id} value={server.id}>{server.displayName}</option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              className="iconButton addServerButton"
+              onClick={() => setActivePage("create")}
+              disabled={isProvisioning || dockerOperationalLock || !canManageReal}
+              aria-label="Add server"
+              title="Add server"
             >
-              <option value="">Select server</option>
-              {effectiveAppState.servers.map((server) => (
-                <option key={server.id} value={server.id}>{server.displayName}</option>
-              ))}
-            </select>
-          </label>
-          <button className={activePage === "overview" ? "active" : ""} onClick={() => setActivePage("overview")} disabled={isProvisioning || !activeServer}>Overview</button>
-          <button className={activePage === "console" ? "active" : ""} onClick={() => setActivePage("console")} disabled={isProvisioning || !activeServer}>Console</button>
-          <button className={activePage === "files" ? "active" : ""} onClick={() => setActivePage("files")} disabled={isProvisioning || !activeServer}>Files</button>
-          <button className={activePage === "mods" ? "active" : ""} onClick={() => setActivePage("mods")} disabled={isProvisioning || !activeServer}>Mods</button>
-          <button className={activePage === "schedule" ? "active" : ""} onClick={() => setActivePage("schedule")} disabled={isProvisioning || !activeServer}>Schedules</button>
+              <AppIcon name="plus" />
+            </button>
+          </div>
+          <button className={activePage === "overview" ? "active" : ""} onClick={() => setActivePage("overview")} disabled={isProvisioning || !activeServer}>
+            <SidebarIcon name="overview" />
+            <span className="navLabel">Overview</span>
+          </button>
+          <button className={activePage === "console" ? "active" : ""} onClick={() => setActivePage("console")} disabled={isProvisioning || !activeServer}>
+            <SidebarIcon name="console" />
+            <span className="navLabel">Console</span>
+          </button>
+          <button className={activePage === "files" ? "active" : ""} onClick={() => setActivePage("files")} disabled={isProvisioning || !activeServer}>
+            <SidebarIcon name="files" />
+            <span className="navLabel">Files</span>
+          </button>
+          <button className={activePage === "mods" ? "active" : ""} onClick={() => setActivePage("mods")} disabled={isProvisioning || !activeServer}>
+            <SidebarIcon name="mods" />
+            <span className="navLabel">Mods</span>
+          </button>
+          <button className={activePage === "schedule" ? "active" : ""} onClick={() => setActivePage("schedule")} disabled={isProvisioning || !activeServer}>
+            <SidebarIcon name="schedule" />
+            <span className="navLabel">Schedules</span>
+          </button>
         </nav>
         <nav className="sideNav sideNavBottom">
           <button className={activePage === "settings" ? "active" : ""} onClick={() => setActivePage("settings")} disabled={isProvisioning}>
             <SidebarIcon name="settings" />
-            <span>Settings</span>
+            <span className="navLabel">Settings</span>
           </button>
           <div className="accountChip">
             <span className="accountIcon" aria-hidden="true">

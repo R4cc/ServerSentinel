@@ -362,6 +362,37 @@ button .buttonIcon {
   margin-top: auto;
 }
 
+.serverPickerRow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: var(--space-2);
+  align-items: end;
+}
+
+.serverPicker {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-2);
+}
+
+.serverPicker small {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.serverPicker select {
+  height: 44px;
+  min-width: 0;
+}
+
+.addServerButton {
+  height: 44px;
+  min-height: 44px;
+}
+
 .sideNav button,
 .serverListItem {
   width: 100%;
@@ -647,6 +678,7 @@ button .buttonIcon {
 
 .sidebarCollapsed .brandBlock {
   display: flex;
+  flex-direction: column;
   justify-content: center;
   align-items: center;
   gap: var(--space-2);
@@ -655,8 +687,9 @@ button .buttonIcon {
 .sidebarCollapsed .brandBlock h1,
 .sidebarCollapsed .brandBlock p,
 .sidebarCollapsed .sidebarVersion,
-.sidebarCollapsed .sideNav small,
-.sidebarCollapsed .sideNav span {
+.sidebarCollapsed .navLabel,
+.sidebarCollapsed .serverPicker small,
+.sidebarCollapsed .serverPicker {
   display: none;
 }
 
@@ -677,9 +710,24 @@ button .buttonIcon {
   padding: 0;
 }
 
+.sidebarCollapsed .serverPickerRow {
+  grid-template-columns: 44px;
+  justify-content: center;
+}
+
 .sidebarCollapsed .iconButton {
   width: 44px;
   min-width: 44px;
+}
+
+.sidebarCollapsed .accountChip {
+  justify-content: center;
+  padding: var(--space-1);
+}
+
+.sidebarCollapsed .accountName,
+.sidebarCollapsed .accountLogoutButton {
+  display: none;
 }
 
 .topbar {
@@ -2167,13 +2215,18 @@ button .buttonIcon {
 
   .sidebarCollapsed .brandBlock h1,
   .sidebarCollapsed .brandBlock p,
-  .sidebarCollapsed .sideNav small,
-  .sidebarCollapsed .sideNav span {
+  .sidebarCollapsed .navLabel,
+  .sidebarCollapsed .serverPicker small,
+  .sidebarCollapsed .serverPicker,
+  .sidebarCollapsed .accountName,
+  .sidebarCollapsed .accountLogoutButton,
+  .sidebarCollapsed .sidebarVersion {
     display: block;
   }
 
   .sidebarCollapsed .brandBlock {
     display: flex;
+    flex-direction: row;
     justify-content: space-between;
   }
 
@@ -2186,6 +2239,22 @@ button .buttonIcon {
   .sidebarCollapsed .sideNav button {
     justify-content: flex-start;
     padding: 10px 12px;
+  }
+
+  .sidebarCollapsed .serverPickerRow {
+    grid-template-columns: minmax(0, 1fr) 44px;
+  }
+
+  .sidebarCollapsed .accountChip {
+    justify-content: flex-start;
+  }
+
+  .sidebarCollapsed .serverPicker {
+    display: grid;
+  }
+
+  .sidebarCollapsed .accountLogoutButton {
+    display: inline-grid;
   }
 
   .workspaceHeader,
