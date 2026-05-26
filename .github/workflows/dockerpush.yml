@@ -5,6 +5,9 @@ on:
     branches:
       - main
       - dev
+  pull_request:
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -23,6 +26,7 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       - name: Login to DockerHub
+        if: github.event_name == 'push'
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -30,6 +34,7 @@ jobs:
 
       - name: Set Docker tags
         id: meta
+        if: github.event_name == 'push'
         run: |
           if [ "${GITHUB_REF_NAME}" = "main" ]; then
             echo "tags=nl2109/serversentinel:latest,nl2109/serversentinel:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
@@ -40,7 +45,17 @@ jobs:
             exit 1
           fi
 
+      - name: Build PR test image
+        if: github.event_name == 'pull_request'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/Dockerfile
+          platforms: linux/amd64
+          push: false
+
       - name: Build and push
+        if: github.event_name == 'push'
         uses: docker/build-push-action@v6
         with:
           context: .
