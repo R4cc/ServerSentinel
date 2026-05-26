@@ -2,7 +2,7 @@
 
 ServerSentinel is a Dockerized, single-user WebUI for creating and managing Fabric Minecraft servers.
 
-NOTE: This project is entirely coded with AI and it's recommended to only be used in a secure environment.
+NOTE: This project is *entirely* coded with AI and it's recommended to only be used in a secure environment.
 
 This MVP intentionally has no authentication, no multi-user model, and no database.
 
