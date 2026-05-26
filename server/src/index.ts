@@ -116,7 +116,7 @@ type DockerExecInspect = {
 
 type DockerContainerInspect = {
   Id?: string;
-  State?: { Status?: DockerState; Running?: boolean };
+  State?: { Status?: DockerState; Running?: boolean; StartedAt?: string; FinishedAt?: string };
   Name?: string;
   Config?: { Labels?: Record<string, string> };
   Mounts?: Array<{ Type?: string; Name?: string; Source?: string; Destination?: string }>;
@@ -134,6 +134,28 @@ type DockerStats = {
     cpu_usage?: { total_usage?: number };
     system_cpu_usage?: number;
   };
+  networks?: Record<string, { rx_bytes?: number; tx_bytes?: number }>;
+};
+
+type ServerEvent = {
+  id: string;
+  type: "info" | "success" | "warning" | "error";
+  text: string;
+  timestamp?: string;
+  source: "logs/latest.log" | "docker";
+};
+
+type ServerActivity = {
+  lastStartedAt?: string;
+  lastStoppedAt?: string;
+  lastRestartAt?: string;
+  currentWorld?: string;
+  serverPort?: string;
+  eulaAccepted?: boolean;
+  javaRuntime?: string;
+  autosaveStatus?: string;
+  playersOnline?: number | null;
+  maxPlayers?: number | null;
 };
 
 type CreateServerInput = {
@@ -1016,6 +1038,13 @@ async function dockerResourceStats(server: AttachedServer) {
   const rawCpuPercent = systemDelta > 0 && cpuDelta > 0 ? (cpuDelta / systemDelta) * onlineCpus * 100 : 0;
   const memoryUsage = stats.memory_stats?.usage ?? 0;
   const reclaimableCache = stats.memory_stats?.stats?.cache ?? stats.memory_stats?.stats?.inactive_file ?? 0;
+  const networkTotals = Object.values(stats.networks ?? {}).reduce(
+    (totals, network) => ({
+      rx: totals.rx + (network.rx_bytes ?? 0),
+      tx: totals.tx + (network.tx_bytes ?? 0)
+    }),
+    { rx: 0, tx: 0 }
+  );
 
   return {
     available: true,
@@ -1023,6 +1052,8 @@ async function dockerResourceStats(server: AttachedServer) {
     cpuPercent: Number.isFinite(rawCpuPercent) ? Math.max(0, rawCpuPercent) : 0,
     memoryUsageBytes: Math.max(0, memoryUsage - reclaimableCache),
     memoryLimitBytes: stats.memory_stats?.limit ?? 0,
+    networkRxBytes: networkTotals.rx,
+    networkTxBytes: networkTotals.tx,
     readAt: stats.read ?? new Date().toISOString(),
     container: dockerContainerName(server)
   };
@@ -1058,6 +1089,106 @@ function parseOnlinePlayerCount(logText: string) {
   const matches = [...logText.matchAll(/There are\s+(\d+)\s+of a max(?:imum)? of\s+\d+\s+players online/gi)];
   const latest = matches.at(-1);
   return latest ? Number(latest[1]) : null;
+}
+
+function parseProperties(text: string) {
+  const values: Record<string, string> = {};
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const separator = line.indexOf("=");
+    if (separator === -1) continue;
+    values[line.slice(0, separator).trim()] = line.slice(separator + 1).trim();
+  }
+  return values;
+}
+
+function normalizeJavaRuntime(server: AttachedServer) {
+  const image = server.dockerImage || "";
+  if (/temurin/i.test(image)) {
+    const version = image.match(/temurin:([^,\s]+)/i)?.[1];
+    return version ? `Temurin ${version.replace(/-jre$/i, "")}` : "Temurin";
+  }
+  if (/java/i.test(image) || /jdk|jre/i.test(image)) return image;
+  return undefined;
+}
+
+function parseLogEvent(line: string, source: ServerEvent["source"], index: number): ServerEvent | null {
+  const ansiStripped = line.replace(/\u001b\[[0-9;]*m/g, "").trim();
+  if (!ansiStripped) return null;
+  const parsed = ansiStripped.match(/^\[(?<time>\d{2}:\d{2}:\d{2})\]\s+\[[^\]]+\]\s+\[(?<level>[A-Z]+)\]:\s*(?<message>.*)$/);
+  const timestamp = parsed?.groups?.time;
+  const level = parsed?.groups?.level ?? "";
+  const message = parsed?.groups?.message ?? ansiStripped;
+  const id = `${source}-${index}-${timestamp ?? ""}-${createHash("sha1").update(message).digest("hex").slice(0, 8)}`;
+
+  const playerJoin = message.match(/^(.+?) joined the game$/i);
+  if (playerJoin) return { id, type: "success", text: `Player joined: ${playerJoin[1]}`, timestamp, source };
+
+  const playerLeft = message.match(/^(.+?) left the game$/i);
+  if (playerLeft) return { id, type: "info", text: `Player left: ${playerLeft[1]}`, timestamp, source };
+
+  const playerDisconnected = message.match(/^(.+?) lost connection:/i);
+  if (playerDisconnected) return { id, type: "warning", text: `Player disconnected: ${playerDisconnected[1]}`, timestamp, source };
+
+  if (/Done \([^)]+\)! For help, type "help"/i.test(message) || /Starting minecraft server/i.test(message)) {
+    return { id, type: "success", text: "Server started", timestamp, source };
+  }
+  if (/Stopping server|Stopping the server/i.test(message)) {
+    return { id, type: "info", text: "Server stopped", timestamp, source };
+  }
+  if (/Saved the game|Saved the world|Automatic saving is now enabled|ThreadedAnvilChunkStorage.*All chunks are saved/i.test(message)) {
+    return { id, type: "success", text: "Server saved", timestamp, source };
+  }
+  if (/out of memory|heap space|memory/i.test(message) && (/warn/i.test(level) || /warn|error|fatal/i.test(message))) {
+    return { id, type: "warning", text: "Memory-related warning detected", timestamp, source };
+  }
+  if (/fatal|crash|exception|error/i.test(message) || level === "ERROR" || level === "FATAL") {
+    return { id, type: "error", text: message.slice(0, 140), timestamp, source };
+  }
+  if (level === "WARN") {
+    return { id, type: "warning", text: message.slice(0, 140), timestamp, source };
+  }
+  return null;
+}
+
+async function serverOverviewData(server: AttachedServer) {
+  const [fileLog, dockerLog, properties, eula, dockerInspect] = await Promise.allSettled([
+    readLatestServerLog(server),
+    dockerRecentLogs(server),
+    readFile(ensureInsideServer(server, "server.properties"), "utf8"),
+    readFile(ensureInsideServer(server, "eula.txt"), "utf8"),
+    dockerControlConfigured(server) ? dockerRequest<DockerContainerInspect>("GET", `/containers/${encodeURIComponent(dockerContainerName(server))}/json`, 200) : Promise.resolve(null)
+  ]);
+  const logSources: Array<{ source: ServerEvent["source"]; text: string }> = [];
+  if (fileLog.status === "fulfilled") logSources.push({ source: "logs/latest.log", text: fileLog.value });
+  if (dockerLog.status === "fulfilled") logSources.push({ source: "docker", text: dockerLog.value });
+  const events = logSources
+    .flatMap(({ source, text }) => text.split(/\r?\n/).map((line, index) => parseLogEvent(line, source, index)).filter((event): event is ServerEvent => Boolean(event)))
+    .slice(-10)
+    .reverse();
+  const props = properties.status === "fulfilled" ? parseProperties(properties.value) : {};
+  const eulaAccepted = eula.status === "fulfilled"
+    ? /^eula\s*=\s*true\s*$/im.test(eula.value)
+    : undefined;
+  const logText = logSources.map((source) => source.text).join("\n");
+  const activity: ServerActivity = {
+    lastStartedAt: dockerInspect.status === "fulfilled" && dockerInspect.value?.State?.StartedAt && !dockerInspect.value.State.StartedAt.startsWith("0001-")
+      ? dockerInspect.value.State.StartedAt
+      : events.find((event) => event.text === "Server started")?.timestamp,
+    lastStoppedAt: dockerInspect.status === "fulfilled" && dockerInspect.value?.State?.FinishedAt && !dockerInspect.value.State.FinishedAt.startsWith("0001-")
+      ? dockerInspect.value.State.FinishedAt
+      : events.find((event) => event.text === "Server stopped")?.timestamp,
+    lastRestartAt: events.find((event) => /restart/i.test(event.text))?.timestamp,
+    currentWorld: props["level-name"],
+    serverPort: props["server-port"],
+    eulaAccepted,
+    javaRuntime: normalizeJavaRuntime(server),
+    autosaveStatus: events.some((event) => event.text === "Server saved") ? "Recently saved" : undefined,
+    playersOnline: parseOnlinePlayerCount(logText),
+    maxPlayers: props["max-players"] ? Number(props["max-players"]) : null
+  };
+  return { events, activity };
 }
 
 async function onlinePlayerCount(server: AttachedServer) {
@@ -1910,6 +2041,10 @@ app.get<{ Params: { id: string } }>("/api/servers/:id/logs", async (request) => 
 
 app.get<{ Params: { id: string } }>("/api/servers/:id/stats", async (request) => {
   return dockerResourceStats(await getServer(request.params.id));
+});
+
+app.get<{ Params: { id: string } }>("/api/servers/:id/events", async (request) => {
+  return serverOverviewData(await getServer(request.params.id));
 });
 
 app.get<{ Params: { id: string }; Querystring: { path?: string } }>("/api/servers/:id/files", async (request) => {

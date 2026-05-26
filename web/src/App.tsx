@@ -81,6 +81,8 @@ type ResourceStats = {
   cpuPercent: number;
   memoryUsageBytes: number;
   memoryLimitBytes: number;
+  networkRxBytes?: number;
+  networkTxBytes?: number;
   readAt: string;
   container?: string;
   message?: string;
@@ -88,6 +90,32 @@ type ResourceStats = {
 
 type ResourceSample = ResourceStats & {
   sampledAt: number;
+};
+
+type ServerEvent = {
+  id: string;
+  type: "info" | "success" | "warning" | "error";
+  text: string;
+  timestamp?: string;
+  source: "logs/latest.log" | "docker";
+};
+
+type ServerActivity = {
+  lastStartedAt?: string;
+  lastStoppedAt?: string;
+  lastRestartAt?: string;
+  currentWorld?: string;
+  serverPort?: string;
+  eulaAccepted?: boolean;
+  javaRuntime?: string;
+  autosaveStatus?: string;
+  playersOnline?: number | null;
+  maxPlayers?: number | null;
+};
+
+type ServerOverviewData = {
+  events: ServerEvent[];
+  activity: ServerActivity;
 };
 
 type FileEntry = {
@@ -287,10 +315,36 @@ function demoStats(running: boolean): ResourceSample {
     cpuPercent: running ? 8 + Math.max(0, Math.sin(elapsed / 7)) * 22 : 0,
     memoryUsageBytes,
     memoryLimitBytes,
+    networkRxBytes: running ? Math.round(84_000_000 + elapsed * 680_000 + Math.sin(elapsed / 5) * 180_000) : 0,
+    networkTxBytes: running ? Math.round(62_000_000 + elapsed * 510_000 + Math.cos(elapsed / 6) * 120_000) : 0,
     readAt: new Date().toISOString(),
     container: "serversentinel-demo",
     message: running ? "Simulated runtime stats." : "Demo server is stopped.",
     sampledAt: Date.now()
+  };
+}
+
+function demoOverviewData(running: boolean): ServerOverviewData {
+  return {
+    activity: {
+      lastStartedAt: running ? new Date(demoStartedAt).toISOString() : new Date(demoStartedAt - 86_400_000).toISOString(),
+      lastStoppedAt: running ? new Date(demoStartedAt - 86_400_000).toISOString() : new Date().toISOString(),
+      lastRestartAt: new Date(demoStartedAt).toISOString(),
+      currentWorld: "world",
+      serverPort: "25565",
+      eulaAccepted: true,
+      javaRuntime: "Temurin 21",
+      autosaveStatus: running ? "Recently saved" : "Unavailable",
+      playersOnline: running ? 8 : 0,
+      maxPlayers: 20
+    },
+    events: [
+      { id: "demo-join-steve", type: "success", text: "Player joined: Steve", timestamp: "13:46:00", source: "logs/latest.log" },
+      { id: "demo-join-alex", type: "success", text: "Player joined: Alex", timestamp: "13:43:00", source: "logs/latest.log" },
+      { id: "demo-save", type: "success", text: "Server saved", timestamp: "13:20:00", source: "logs/latest.log" },
+      { id: "demo-start", type: "success", text: "Server started", timestamp: "11:32:00", source: "logs/latest.log" },
+      { id: "demo-warn", type: "warning", text: "Memory-related warning detected", timestamp: "11:12:00", source: "logs/latest.log" }
+    ]
   };
 }
 
@@ -697,6 +751,7 @@ export default function App() {
   const [installedMods, setInstalledMods] = useState<InstalledMod[]>([]);
   const [modsView, setModsView] = useState<"manager" | "search">("manager");
   const [resourceSamples, setResourceSamples] = useState<ResourceSample[]>([]);
+  const [overviewData, setOverviewData] = useState<ServerOverviewData>({ events: [], activity: {} });
   const [commandInput, setCommandInput] = useState("");
   const [commandInputFocused, setCommandInputFocused] = useState(false);
   const [consolePinnedToBottom, setConsolePinnedToBottom] = useState(true);
@@ -931,7 +986,7 @@ export default function App() {
     if (!activeServer || (activePage !== "overview" && activePage !== "console")) return;
     if (demoMode && activeServer.id === demoServerId) {
       setResourceSamples([demoStats(demoRunning)]);
-      const interval = window.setInterval(() => setResourceSamples([demoStats(demoRunning)]), resourcePollMs);
+      const interval = window.setInterval(() => setResourceSamples((samples) => [...samples, demoStats(demoRunning)].slice(-48)), resourcePollMs);
       return () => window.clearInterval(interval);
     }
     const serverId = activeServer.id;
@@ -941,10 +996,10 @@ export default function App() {
       try {
         const stats = await api<ResourceStats>(`/api/servers/${serverId}/stats`);
         if (cancelled) return;
-        setResourceSamples([{ ...stats, sampledAt: Date.now() }]);
+        setResourceSamples((samples) => [...samples, { ...stats, sampledAt: Date.now() }].slice(-48));
       } catch (error) {
         if (!cancelled) {
-          setResourceSamples([{
+          setResourceSamples((samples) => [...samples, {
             available: false,
             running: false,
             cpuPercent: 0,
@@ -953,12 +1008,37 @@ export default function App() {
             readAt: new Date().toISOString(),
             message: (error as Error).message || "Container stats are unavailable",
             sampledAt: Date.now()
-          }]);
+          }].slice(-48));
         }
       }
     }
     void pollStats();
     const interval = window.setInterval(() => void pollStats(), resourcePollMs);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [activeServer?.id, activePage, demoMode, demoRunning]);
+
+  useEffect(() => {
+    if (!activeServer || activePage !== "overview") return;
+    if (demoMode && activeServer.id === demoServerId) {
+      setOverviewData(demoOverviewData(demoRunning));
+      return;
+    }
+    const serverId = activeServer.id;
+    let cancelled = false;
+    setOverviewData({ events: [], activity: {} });
+    async function loadOverviewData() {
+      try {
+        const data = await api<ServerOverviewData>(`/api/servers/${serverId}/events`);
+        if (!cancelled) setOverviewData(data);
+      } catch {
+        if (!cancelled) setOverviewData({ events: [], activity: {} });
+      }
+    }
+    void loadOverviewData();
+    const interval = window.setInterval(() => void loadOverviewData(), 30_000);
     return () => {
       cancelled = true;
       window.clearInterval(interval);
@@ -2183,31 +2263,24 @@ export default function App() {
 
             {activePage === "overview" && (
               <section className="tabPage overviewPage">
-                <section className="panel controls">
-                  <div className="panelHeader">
-                    <h2>Server Overview</h2>
-                  </div>
-                  <div className="serverSummary">
-                    <div className="summaryTile">
-                      <span>State</span>
-                      <strong>{status?.docker.running ? "Running" : status?.docker.state === "unknown" ? "Unknown" : "Stopped"}</strong>
-                    </div>
-                    <div className="summaryTile">
-                      <span>Minecraft</span>
-                      <strong>{activeServer.minecraftVersion || "Unknown"}</strong>
-                    </div>
-                    <div className="summaryTile">
-                      <span>Fabric loader</span>
-                      <strong>{activeServer.loaderVersion || "Latest stable"}</strong>
-                    </div>
-                    <div className="summaryTile">
-                      <span>Container</span>
-                      <strong>{status?.docker.state && status.docker.state !== "unknown" ? status.docker.state : status?.controlAvailable ? "Ready" : "Unavailable"}</strong>
-                    </div>
-                  </div>
-                </section>
+                <OverviewSummary
+                  server={activeServer}
+                  status={status}
+                  dockerSocketMounted={effectiveAppState.dockerSocketMounted}
+                  activity={overviewData.activity}
+                  formatDate={formatDisplayDate}
+                />
 
-                <ResourcePanel server={activeServer} samples={resourceSamples} status={status} dockerSocketMounted={effectiveAppState.dockerSocketMounted} formatNumber={formatDisplayNumber} />
+                <ResourcePanel
+                  server={activeServer}
+                  samples={resourceSamples}
+                  status={status}
+                  dockerSocketMounted={effectiveAppState.dockerSocketMounted}
+                  formatNumber={formatDisplayNumber}
+                />
+
+                <ActivityHealthPanel activity={overviewData.activity} formatDate={formatDisplayDate} />
+                <RecentEventsPanel events={overviewData.events} onOpenConsole={() => setActivePage("console")} />
 
               </section>
             )}
@@ -2691,6 +2764,105 @@ function RuntimeControls({
   );
 }
 
+function formatUptime(startedAt?: string, running?: boolean) {
+  if (!running || !startedAt || /^\d{2}:\d{2}:\d{2}$/.test(startedAt)) return "Unknown";
+  const started = new Date(startedAt).getTime();
+  if (!Number.isFinite(started)) return "Unknown";
+  const seconds = Math.max(0, Math.floor((Date.now() - started) / 1000));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  if (hours > 0) return `${hours}h ${minutes}m`;
+  return `${minutes}m`;
+}
+
+function formatActivityDate(value: string | undefined, formatDate: (value: string | number | Date) => string) {
+  if (!value) return "Unknown";
+  if (/^\d{2}:\d{2}:\d{2}$/.test(value)) return value;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Unknown" : formatDate(value);
+}
+
+function formatRate(bytesPerSecond?: number) {
+  if (bytesPerSecond === undefined || !Number.isFinite(bytesPerSecond)) return "Unavailable";
+  if (bytesPerSecond < 1024) return `${Math.max(0, bytesPerSecond).toFixed(0)} B/s`;
+  if (bytesPerSecond < 1024 * 1024) return `${(bytesPerSecond / 1024).toFixed(0)} KB/s`;
+  return `${(bytesPerSecond / 1024 / 1024).toFixed(1)} MB/s`;
+}
+
+function Sparkline({ samples, value, tone = "blue" }: { samples: ResourceSample[]; value: (sample: ResourceSample) => number; tone?: "blue" | "green" }) {
+  const values = samples.map(value).filter((item) => Number.isFinite(item));
+  if (values.length < 2) return <div className="sparklineEmpty">No history yet</div>;
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, 0);
+  const range = Math.max(1, max - min);
+  const points = values.map((item, index) => {
+    const x = values.length === 1 ? 0 : (index / (values.length - 1)) * 100;
+    const y = 36 - ((item - min) / range) * 32 - 2;
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  }).join(" ");
+  return (
+    <svg className={`sparkline ${tone}`} viewBox="0 0 100 40" preserveAspectRatio="none" aria-hidden="true">
+      <polyline points={points} />
+    </svg>
+  );
+}
+
+function OverviewSummary({
+  server,
+  status,
+  dockerSocketMounted,
+  activity,
+  formatDate
+}: {
+  server: AttachedServer;
+  status: ServerStatus | null;
+  dockerSocketMounted: boolean;
+  activity: ServerActivity;
+  formatDate: (value: string | number | Date) => string;
+}) {
+  const running = Boolean(status?.docker.running);
+  const state = running ? "Running" : status?.docker.state === "unknown" ? "Unknown" : "Stopped";
+  const players = activity.playersOnline === null || activity.playersOnline === undefined
+    ? "Unknown"
+    : activity.maxPlayers
+      ? `${activity.playersOnline} / ${activity.maxPlayers}`
+      : String(activity.playersOnline);
+  return (
+    <section className="overviewSummary">
+      <div className={`summaryTile state ${running ? "running" : "stopped"}`}>
+        <span>State</span>
+        <strong>{state}</strong>
+        <small>{running ? `Since ${formatActivityDate(activity.lastStartedAt, formatDate)}` : status?.docker.message || "Not currently running"}</small>
+      </div>
+      <div className="summaryTile">
+        <span>Minecraft version</span>
+        <strong>{server.minecraftVersion || "Unknown"}</strong>
+        <small>Release</small>
+      </div>
+      <div className="summaryTile">
+        <span>Fabric loader</span>
+        <strong>{server.loaderVersion || "Unknown"}</strong>
+        <small>{server.loaderVersion ? "Configured" : "Latest stable may be used"}</small>
+      </div>
+      <div className="summaryTile">
+        <span>Uptime</span>
+        <strong>{formatUptime(activity.lastStartedAt, running)}</strong>
+        <small>{running ? "Container start time" : "Unavailable while stopped"}</small>
+      </div>
+      <div className="summaryTile">
+        <span>Players online</span>
+        <strong>{players}</strong>
+        <small>{activity.maxPlayers ? "Max players" : "From recent server output"}</small>
+      </div>
+      <div className={`summaryTile ${runtimeTone(status, dockerSocketMounted)}`}>
+        <span>Runtime status</span>
+        <strong>{runtimeLabel(status, dockerSocketMounted).replace(/^Container /, "")}</strong>
+        <small>{status?.docker.container || "Container unavailable"}</small>
+      </div>
+    </section>
+  );
+}
+
 function ResourcePanel({
   server,
   samples,
@@ -2707,7 +2879,16 @@ function ResourcePanel({
   const latest = samples.at(-1);
   const cpu = latest?.cpuPercent ?? 0;
   const memoryUsage = latest?.memoryUsageBytes ?? 0;
-  const configuredMemoryBytes = parseMaxMemoryGb(server.javaArgs) * 1024 * 1024 * 1024;
+  const configuredMemoryBytes = latest?.memoryLimitBytes || parseMaxMemoryGb(server.javaArgs) * 1024 * 1024 * 1024;
+  const memoryPercent = configuredMemoryBytes ? (memoryUsage / configuredMemoryBytes) * 100 : 0;
+  const previousNetworkSample = [...samples].reverse().find((sample) => sample !== latest && sample.networkRxBytes !== undefined && sample.networkTxBytes !== undefined);
+  const secondsBetweenSamples = latest && previousNetworkSample ? Math.max(1, (latest.sampledAt - previousNetworkSample.sampledAt) / 1000) : undefined;
+  const rxRate = latest?.networkRxBytes !== undefined && previousNetworkSample?.networkRxBytes !== undefined && secondsBetweenSamples
+    ? Math.max(0, (latest.networkRxBytes - previousNetworkSample.networkRxBytes) / secondsBetweenSamples)
+    : undefined;
+  const txRate = latest?.networkTxBytes !== undefined && previousNetworkSample?.networkTxBytes !== undefined && secondsBetweenSamples
+    ? Math.max(0, (latest.networkTxBytes - previousNetworkSample.networkTxBytes) / secondsBetweenSamples)
+    : undefined;
   const statusMessage = latest?.message
     || (!dockerSocketMounted
       ? "Docker socket is not mounted, so live container stats are unavailable."
@@ -2720,17 +2901,83 @@ function ResourcePanel({
       <div className="panelHeader">
         <h2>Resource Usage</h2>
       </div>
-      <div className="resourceStats">
-        <div className="resourceMetric">
-          <span>Memory</span>
-          <strong>{`${formatNumber(Math.round(memoryUsage / 1024 / 1024))} MB`} / {`${formatNumber(Math.round(configuredMemoryBytes / 1024 / 1024))} MB`}</strong>
+      <div className="resourceRows">
+        <div className="resourceRow">
+          <div className="resourceMetricLabel">
+            <span>Memory usage</span>
+            <strong>{`${formatNumber(Math.round(memoryUsage / 1024 / 1024))} MB`} / {`${formatNumber(Math.round(configuredMemoryBytes / 1024 / 1024))} MB`}</strong>
+            <small>{memoryPercent.toFixed(1)}%</small>
+          </div>
+          <Sparkline samples={samples} value={(sample) => sample.memoryUsageBytes} />
         </div>
-        <div className="resourceMetric">
-          <span>CPU</span>
-          <strong>{cpu.toFixed(1)}%</strong>
+        <div className="resourceRow">
+          <div className="resourceMetricLabel">
+            <span>CPU usage</span>
+            <strong>{cpu.toFixed(1)}%</strong>
+            <small>Average</small>
+          </div>
+          <Sparkline samples={samples} value={(sample) => sample.cpuPercent} />
+        </div>
+        <div className="resourceRow">
+          <div className="resourceMetricLabel">
+            <span>Network activity</span>
+            <strong>{`↑ ${formatRate(txRate)} / ↓ ${formatRate(rxRate)}`}</strong>
+            <small>Current transfer rate</small>
+          </div>
+          <Sparkline samples={samples} value={(sample) => sample.networkRxBytes ?? 0} tone="green" />
         </div>
       </div>
       {!latest?.available && <p className="resourceMessage">{statusMessage}</p>}
+    </section>
+  );
+}
+
+function ActivityHealthPanel({ activity, formatDate }: { activity: ServerActivity; formatDate: (value: string | number | Date) => string }) {
+  const items = [
+    ["Last started", formatActivityDate(activity.lastStartedAt, formatDate)],
+    ["Last restart", formatActivityDate(activity.lastRestartAt, formatDate)],
+    ["Last stopped", formatActivityDate(activity.lastStoppedAt, formatDate)],
+    ["Current world", activity.currentWorld || "Unknown"],
+    ["Server port", activity.serverPort || "Unknown"],
+    ["EULA accepted", activity.eulaAccepted === undefined ? "Unknown" : activity.eulaAccepted ? "Yes" : "No"],
+    ["Java", activity.javaRuntime || "Unknown"],
+    ["Autosave", activity.autosaveStatus || "Unavailable"]
+  ];
+  return (
+    <section className="panel activityPanel">
+      <div className="panelHeader">
+        <h2>Server Activity &amp; Health</h2>
+      </div>
+      <div className="activityGrid">
+        {items.map(([label, value]) => (
+          <div className="activityItem" key={label}>
+            <span>{label}</span>
+            <strong>{value}</strong>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RecentEventsPanel({ events, onOpenConsole }: { events: ServerEvent[]; onOpenConsole: () => void }) {
+  return (
+    <section className="panel eventsPanel">
+      <div className="panelHeader">
+        <h2>Recent Events</h2>
+      </div>
+      <div className="eventList">
+        {events.length ? events.map((event) => (
+          <div className={`eventRow ${event.type}`} key={event.id}>
+            <span className="eventMarker" aria-hidden="true" />
+            <strong>{event.text}</strong>
+            <small>{event.timestamp || event.source}</small>
+          </div>
+        )) : (
+          <div className="eventEmpty">No recent server events found.</div>
+        )}
+      </div>
+      <button type="button" className="textLinkButton" onClick={onOpenConsole}>View full log</button>
     </section>
   );
 }

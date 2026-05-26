@@ -10,6 +10,7 @@
   --sentinel-accent-soft: #edf1ff;
   --sentinel-accent-muted: #b9c6ff;
   --sentinel-success: #2c7a66;
+  --sentinel-warning: #b7791f;
   --sentinel-danger: #b94a48;
   --surface: var(--swiss-white);
   --surface-raised: var(--swiss-white);
@@ -228,6 +229,7 @@ code {
   --sentinel-accent-soft: #272d44;
   --sentinel-accent-muted: #6f7fca;
   --sentinel-success: #8dd6c3;
+  --sentinel-warning: #f6c177;
   --sentinel-danger: #f1aaa6;
   --terminal-bg: #17191e;
   --terminal-text: #dfe3eb;
@@ -1438,11 +1440,19 @@ button .buttonIcon {
   align-items: start;
 }
 
-.overviewPage > .controls {
-  grid-column: span 7;
+.overviewSummary {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: repeat(6, minmax(150px, 1fr));
+  gap: var(--space-3);
 }
 
 .overviewPage > .resourcePanel {
+  grid-column: span 7;
+}
+
+.overviewPage > .activityPanel,
+.overviewPage > .eventsPanel {
   grid-column: span 5;
 }
 
@@ -1597,81 +1607,106 @@ button .buttonIcon {
   color: var(--sentinel-danger);
 }
 
-.serverSummary {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-2);
-}
-
 .summaryTile {
-  min-height: 86px;
+  min-height: 108px;
   border: var(--border-strong) solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface-muted);
   padding: var(--space-3);
   display: grid;
   align-content: space-between;
-  gap: var(--space-2);
+  gap: var(--space-1);
+  position: relative;
+  overflow: hidden;
 }
 
-.summaryTile:nth-child(1) {
-  border-top-color: var(--accent);
+.summaryTile::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 5px;
+  background: var(--accent);
 }
 
-.summaryTile:nth-child(2) {
-  border-top-color: var(--sentinel-accent-muted);
+.summaryTile.running::before,
+.summaryTile.state.running::before {
+  background: var(--sentinel-success);
 }
 
-.summaryTile:nth-child(3) {
-  border-top-color: var(--sentinel-accent-strong);
+.summaryTile.stopped::before,
+.summaryTile.state.stopped::before {
+  background: var(--sentinel-danger);
 }
 
-.summaryTile:nth-child(4) {
-  border-top-color: var(--sentinel-danger);
+.summaryTile.neutral::before {
+  background: var(--text-muted);
 }
 
-.summaryTile strong {
-  color: var(--text);
-  font-size: 18px;
-  line-height: 1.05;
-  font-weight: 900;
-  letter-spacing: -0.02em;
-  overflow-wrap: anywhere;
-}
-
-.resourcePanel {
-  min-width: 0;
-}
-
-.resourceStats {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-2);
-  margin-bottom: var(--space-3);
-}
-
-.resourceMetric {
-  border: var(--border-strong) solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-3);
-  background: var(--surface-muted);
-  display: grid;
-  gap: var(--space-2);
-}
-
-.resourceMetric span,
-.resourceMetric small {
+.summaryTile span,
+.summaryTile small {
   color: var(--text-muted);
-}
-
-.resourceMetric span {
   font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.resourceMetric strong {
+.summaryTile strong {
+  color: var(--text);
+  font-size: 22px;
+  line-height: 1.05;
+  font-weight: 900;
+  letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
+}
+
+.summaryTile small {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.35;
+  text-transform: none;
+}
+
+.resourcePanel {
+  min-width: 0;
+}
+
+.resourceRows,
+.eventList {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.resourceRow {
+  border: var(--border-strong) solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3);
+  background: var(--surface-muted);
+  display: grid;
+  grid-template-columns: minmax(180px, 0.34fr) minmax(220px, 1fr);
+  gap: var(--space-3);
+  align-items: center;
+}
+
+.resourceMetricLabel {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.resourceMetricLabel span,
+.resourceMetricLabel small {
+  color: var(--text-muted);
+}
+
+.resourceMetricLabel span {
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.resourceMetricLabel strong {
   font-size: 22px;
   font-weight: 900;
   letter-spacing: -0.03em;
@@ -1679,9 +1714,145 @@ button .buttonIcon {
   overflow-wrap: anywhere;
 }
 
-.resourceMetric small {
+.resourceMetricLabel small {
   font-size: 12px;
   line-height: 1.35;
+}
+
+.sparkline {
+  width: 100%;
+  height: 52px;
+  border: var(--border-subtle) solid var(--border-muted);
+  background:
+    linear-gradient(var(--border-muted) 1px, transparent 1px) 0 50% / 100% 50%,
+    var(--surface);
+}
+
+.sparkline polyline {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2.2;
+  vector-effect: non-scaling-stroke;
+}
+
+.sparkline.green polyline {
+  stroke: var(--sentinel-success);
+}
+
+.sparklineEmpty {
+  min-height: 52px;
+  border: var(--border-subtle) solid var(--border-muted);
+  background: var(--surface);
+  color: var(--text-muted);
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.activityGrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  border: var(--border-strong) solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--surface-muted);
+}
+
+.activityItem {
+  min-height: 76px;
+  padding: var(--space-3);
+  display: grid;
+  align-content: center;
+  gap: var(--space-1);
+  border-bottom: var(--border-subtle) solid var(--border-muted);
+}
+
+.activityItem:nth-child(odd) {
+  border-right: var(--border-subtle) solid var(--border-muted);
+}
+
+.activityItem:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.activityItem span {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.activityItem strong {
+  font-size: 15px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.eventRow {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  align-items: center;
+  min-height: 36px;
+  border-bottom: var(--border-subtle) solid var(--border-muted);
+  padding: var(--space-2) 0;
+}
+
+.eventRow:first-child {
+  padding-top: 0;
+}
+
+.eventMarker {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--accent);
+  justify-self: center;
+}
+
+.eventRow.success .eventMarker {
+  background: var(--sentinel-success);
+}
+
+.eventRow.warning .eventMarker {
+  background: var(--sentinel-warning);
+}
+
+.eventRow.error .eventMarker {
+  background: var(--sentinel-danger);
+}
+
+.eventRow strong {
+  font-size: 14px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.eventRow small,
+.eventEmpty {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.eventEmpty {
+  border: var(--border-strong) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  padding: var(--space-3);
+}
+
+.textLinkButton {
+  margin-top: var(--space-3);
+  border: 0;
+  padding: 0;
+  color: var(--accent);
+  background: transparent;
+  justify-self: start;
+  box-shadow: none;
 }
 
 .resourceMeta {
@@ -2293,9 +2464,15 @@ button .buttonIcon {
     grid-template-columns: 1fr;
   }
 
-  .overviewPage > .controls,
-  .overviewPage > .resourcePanel {
+  .overviewSummary,
+  .overviewPage > .resourcePanel,
+  .overviewPage > .activityPanel,
+  .overviewPage > .eventsPanel {
     grid-column: 1 / -1;
+  }
+
+  .overviewSummary {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }
 
@@ -2394,8 +2571,10 @@ button .buttonIcon {
     grid-template-columns: 1fr;
   }
 
-  .overviewPage > .controls,
-  .overviewPage > .resourcePanel {
+  .overviewSummary,
+  .overviewPage > .resourcePanel,
+  .overviewPage > .activityPanel,
+  .overviewPage > .eventsPanel {
     grid-column: 1 / -1;
   }
 
@@ -2466,12 +2645,27 @@ button .buttonIcon {
     flex-direction: column;
   }
 
-  .serverSummary {
+  .overviewSummary,
+  .activityGrid,
+  .resourceRow {
     grid-template-columns: 1fr;
   }
 
-  .resourceStats {
-    grid-template-columns: 1fr;
+  .activityItem,
+  .activityItem:nth-child(odd) {
+    border-right: 0;
+  }
+
+  .activityItem:nth-last-child(2) {
+    border-bottom: var(--border-subtle) solid var(--border-muted);
+  }
+
+  .eventRow {
+    grid-template-columns: 14px minmax(0, 1fr);
+  }
+
+  .eventRow small {
+    grid-column: 2;
   }
 
   .terminalPrompt {
