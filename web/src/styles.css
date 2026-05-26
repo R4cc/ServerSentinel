@@ -620,8 +620,9 @@ button .buttonIcon {
 }
 
 .sidebarCollapsed .brandBlock {
-  display: grid;
+  display: flex;
   justify-content: center;
+  align-items: center;
   gap: var(--space-2);
 }
 
