@@ -416,7 +416,7 @@ async function api<T>(path: string, init?: RequestInit): Promise<T> {
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload.error ?? `Request failed with ${response.status}`);
+    throw new Error(payload.message ?? payload.error ?? `Request failed with ${response.status}`);
   }
   return payload as T;
 }
@@ -643,6 +643,7 @@ export default function App() {
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [authNotice, setAuthNotice] = useState("");
   const [users, setUsers] = useState<PublicUser[]>([]);
+  const [userModal, setUserModal] = useState<"create" | PublicUser | null>(null);
   const [appState, setAppState] = useState<AppState>(emptyApp);
   const [activeServerId, setActiveServerId] = useState("");
   const [status, setStatus] = useState<ServerStatus | null>(null);
@@ -996,9 +997,20 @@ export default function App() {
     const form = new FormData(event.currentTarget);
     const username = String(form.get("username") || "");
     const password = String(form.get("password") || "");
+    const confirmPassword = String(form.get("confirmPassword") || "");
     const setupRequired = authSession?.setupRequired ?? false;
     const demoLogin = username === "demo" && password === "demo";
     setAuthNotice("");
+    if (setupRequired && !demoLogin) {
+      if (password.length < 8) {
+        setAuthNotice("Password must be at least 8 characters");
+        return;
+      }
+      if (password !== confirmPassword) {
+        setAuthNotice("Passwords do not match");
+        return;
+      }
+    }
     try {
       const session = await api<AuthSession>(setupRequired && !demoLogin ? "/api/auth/register-first" : "/api/auth/login", {
         method: "POST",
@@ -1053,8 +1065,48 @@ export default function App() {
         })
       });
       event.currentTarget.reset();
+      setUserModal(null);
       notify("success", "User account created");
       await loadUsers();
+    } catch (error) {
+      notify("error", (error as Error).message);
+    }
+  }
+
+  async function updateUser(event: FormEvent<HTMLFormElement>, user: PublicUser) {
+    event.preventDefault();
+    if (!canAdmin) return;
+    const form = new FormData(event.currentTarget);
+    try {
+      await api<PublicUser>(`/api/users/${user.id}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          username: form.get("username"),
+          password: form.get("password"),
+          role: form.get("role")
+        })
+      });
+      setUserModal(null);
+      notify("success", "User account updated");
+      await loadUsers();
+      if (authSession?.user?.id === user.id) {
+        await refreshAuth();
+      }
+    } catch (error) {
+      notify("error", (error as Error).message);
+    }
+  }
+
+  async function deleteUser(user: PublicUser) {
+    if (!canAdmin) return;
+    if (!window.confirm(`Delete user ${user.username}?`)) return;
+    try {
+      await api(`/api/users/${user.id}`, { method: "DELETE" });
+      notify("success", `Deleted ${user.username}`);
+      await loadUsers();
+      if (authSession?.user?.id === user.id) {
+        await logout();
+      }
     } catch (error) {
       notify("error", (error as Error).message);
     }
@@ -1837,13 +1889,22 @@ export default function App() {
             <SidebarIcon name="settings" />
             <span>Settings</span>
           </button>
-          <div className="accountBadge">
-            <strong>{demoMode ? "Demo" : authSession.user?.username}</strong>
-            <span>{demoMode ? "simulated mode" : authSession.user?.role}</span>
+          <div className="accountChip">
+            <span className="accountIcon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <circle cx="12" cy="8" r="4" />
+                <path d="M4 21a8 8 0 0 1 16 0" />
+              </svg>
+            </span>
+            <span className="accountName">{demoMode ? "Demo" : authSession.user?.username}</span>
+            <button type="button" className="accountLogoutButton" onClick={logout} disabled={isProvisioning} aria-label={demoMode ? "Exit demo" : "Log out"}>
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M10 5H5v14h5" />
+                <path d="M14 8l4 4-4 4" />
+                <path d="M8 12h10" />
+              </svg>
+            </button>
           </div>
-          <button type="button" className="secondaryButton" onClick={logout} disabled={isProvisioning}>
-            <span>{demoMode ? "Exit demo" : "Log out"}</span>
-          </button>
           <span className="sidebarVersion">v{appVersion}</span>
         </nav>
       </aside>
@@ -2004,7 +2065,17 @@ export default function App() {
                     <h2>Users</h2>
                   </div>
                 </div>
-                <UserManagement users={users} onCreate={createUser} />
+                <UserManagement
+                  users={users}
+                  currentUserId={authSession.user?.id}
+                  editingUser={userModal}
+                  onOpenCreate={() => setUserModal("create")}
+                  onOpenEdit={(user) => setUserModal(user)}
+                  onCloseModal={() => setUserModal(null)}
+                  onCreate={createUser}
+                  onUpdate={updateUser}
+                  onDelete={deleteUser}
+                />
               </section>
             )}
 
@@ -2365,6 +2436,12 @@ function AuthPanel({
               Password
               <input name="password" type="password" autoComplete={setupRequired ? "new-password" : "current-password"} required minLength={1} placeholder={setupRequired ? "At least 8 characters" : "Password"} />
             </label>
+            {setupRequired && (
+              <label>
+                Confirm password
+                <input name="confirmPassword" type="password" autoComplete="new-password" required minLength={1} placeholder="Repeat password" />
+              </label>
+            )}
             <button>{busy ? "Checking..." : setupRequired ? "Create admin" : "Sign in"}</button>
           </fieldset>
         </form>
@@ -2376,43 +2453,113 @@ function AuthPanel({
 
 function UserManagement({
   users,
-  onCreate
+  currentUserId,
+  editingUser,
+  onOpenCreate,
+  onOpenEdit,
+  onCloseModal,
+  onCreate,
+  onUpdate,
+  onDelete
 }: {
   users: PublicUser[];
+  currentUserId?: string;
+  editingUser: "create" | PublicUser | null;
+  onOpenCreate: () => void;
+  onOpenEdit: (user: PublicUser) => void;
+  onCloseModal: () => void;
   onCreate: (event: FormEvent<HTMLFormElement>) => void;
+  onUpdate: (event: FormEvent<HTMLFormElement>, user: PublicUser) => void;
+  onDelete: (user: PublicUser) => void;
 }) {
+  const roles: Array<{ role: UserRole; label: string; permissions: string[] }> = [
+    { role: "basic", label: "Basic", permissions: ["Start, stop, restart"] },
+    { role: "expanded", label: "Expanded", permissions: ["Basic operations", "Console commands", "Scheduled commands"] },
+    { role: "manager", label: "Manager", permissions: ["Expanded operations", "Server settings", "Server create/edit/delete", "Files and mods"] },
+    { role: "admin", label: "Admin", permissions: ["Manager operations", "Create, edit, delete users"] }
+  ];
+  const modalUser = editingUser && editingUser !== "create" ? editingUser : null;
+
   return (
-    <div className="userManagement">
-      <form onSubmit={onCreate} className="attachForm">
-        <fieldset>
-          <label>
-            Username
-            <input name="username" autoComplete="off" required minLength={3} />
-          </label>
-          <label>
-            Password
-            <input name="password" type="password" autoComplete="new-password" required minLength={8} />
-          </label>
-          <label>
-            Role
-            <select name="role" defaultValue="basic">
-              <option value="basic">Basic operations</option>
-              <option value="expanded">Expanded</option>
-              <option value="manager">Manager</option>
-              <option value="admin">Admin</option>
-            </select>
-          </label>
-          <button>Create user</button>
-        </fieldset>
-      </form>
-      <div className="userList">
-        {users.map((user) => (
-          <article key={user.id} className="userRow">
-            <strong>{user.username}</strong>
-            <span>{user.role}</span>
+    <div className="usersSettings">
+      <div className="settingsRow usersHeaderRow">
+        <div>
+          <strong>User accounts</strong>
+        </div>
+        <button type="button" onClick={onOpenCreate}>New user</button>
+      </div>
+
+      <div className="roleMatrix">
+        {roles.map((role) => (
+          <article key={role.role} className="roleCard">
+            <strong>{role.label}</strong>
+            <ul>
+              {role.permissions.map((permission) => <li key={permission}>{permission}</li>)}
+            </ul>
           </article>
         ))}
       </div>
+
+      <div className="userList">
+        {users.map((user) => (
+          <article key={user.id} className="userRow">
+            <div>
+              <strong>{user.username}</strong>
+              {user.id === currentUserId && <span className="currentUserMark">Current user</span>}
+            </div>
+            <span className="settingsStatus">{user.role}</span>
+            <div className="userActions">
+              <button type="button" className="secondaryButton" onClick={() => onOpenEdit(user)}>Edit</button>
+              <button type="button" className="dangerTextButton" onClick={() => onDelete(user)}>Delete</button>
+            </div>
+          </article>
+        ))}
+      </div>
+
+      {editingUser && (
+        <div className="modalBackdrop" role="presentation">
+          <section className="modalPanel" role="dialog" aria-modal="true" aria-labelledby="user-modal-title">
+            <div className="panelHeader">
+              <h2 id="user-modal-title">{modalUser ? "Edit User" : "New User"}</h2>
+              <button type="button" className="iconButton" onClick={onCloseModal} aria-label="Close user dialog">
+                <AppIcon name="x" />
+              </button>
+            </div>
+            <form onSubmit={(event) => modalUser ? onUpdate(event, modalUser) : onCreate(event)} className="attachForm">
+              <fieldset>
+                <label>
+                  Username
+                  <input name="username" autoComplete="off" required minLength={3} defaultValue={modalUser?.username ?? ""} />
+                </label>
+                <label>
+                  Password
+                  <input
+                    name="password"
+                    type="password"
+                    autoComplete="new-password"
+                    required={!modalUser}
+                    minLength={modalUser ? 0 : 8}
+                    placeholder={modalUser ? "Leave blank to keep current password" : "At least 8 characters"}
+                  />
+                </label>
+                <label>
+                  Role
+                  <select name="role" defaultValue={modalUser?.role ?? "basic"}>
+                    <option value="basic">Basic operations</option>
+                    <option value="expanded">Expanded</option>
+                    <option value="manager">Manager</option>
+                    <option value="admin">Admin</option>
+                  </select>
+                </label>
+                <div className="buttonRow">
+                  <button type="button" className="secondaryButton" onClick={onCloseModal}>Cancel</button>
+                  <button>{modalUser ? "Save user" : "Create user"}</button>
+                </div>
+              </fieldset>
+            </form>
+          </section>
+        </div>
+      )}
     </div>
   );
 }

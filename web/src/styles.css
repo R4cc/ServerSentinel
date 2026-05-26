@@ -958,36 +958,106 @@ button .buttonIcon {
   letter-spacing: 0.08em;
 }
 
-.accountBadge {
+.accountChip {
   border: var(--border-strong) solid var(--border);
   border-radius: var(--radius-md);
   background: var(--surface);
-  padding: var(--space-2) var(--space-3);
-  display: grid;
-  gap: 2px;
+  padding: var(--space-1);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 46px;
+  min-width: 0;
 }
 
-.accountBadge strong {
+.accountIcon {
+  width: 34px;
+  height: 34px;
+  border: var(--border-strong) solid var(--border);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+}
+
+.accountIcon svg,
+.accountLogoutButton svg {
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2.2;
+  stroke-linecap: square;
+  stroke-linejoin: miter;
+}
+
+.accountName {
+  min-width: 0;
+  flex: 1;
   font-size: 12px;
   font-weight: 900;
   text-transform: uppercase;
   overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.accountBadge span {
-  color: var(--text-muted);
-  font-size: 11px;
+.accountLogoutButton {
+  width: 34px;
+  min-width: 34px;
+  min-height: 34px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  display: inline-grid;
+  place-items: center;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.usersSettings {
+  display: grid;
+  gap: 0;
+}
+
+.usersHeaderRow {
+  border-top: 0;
+  padding-top: 0;
+}
+
+.roleMatrix {
+  border-top: var(--border-strong) solid var(--border);
+  padding-top: var(--space-3);
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.roleCard {
+  border: var(--border-strong) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-muted);
+  padding: var(--space-3);
+  display: grid;
+  gap: var(--space-2);
+  align-content: start;
+}
+
+.roleCard strong {
+  font-size: 12px;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.userManagement {
-  display: grid;
-  grid-template-columns: minmax(260px, 360px) minmax(0, 1fr);
-  gap: var(--space-4);
-  align-items: start;
+.roleCard ul {
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.45;
 }
 
 .userList {
@@ -1000,22 +1070,60 @@ button .buttonIcon {
   border-radius: var(--radius-md);
   background: var(--surface);
   padding: var(--space-3);
-  display: flex;
-  justify-content: space-between;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: var(--space-3);
   align-items: center;
 }
 
-.userRow strong,
-.userRow span {
+.userRow > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: var(--space-1);
+}
+
+.userRow strong {
   font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.currentUserMark {
+  color: var(--text-muted);
+  font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
-.userRow span {
-  color: var(--text-muted);
+.userActions {
+  display: flex;
+  gap: var(--space-2);
+  justify-content: end;
+}
+
+.modalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: var(--space-4);
+  background: rgb(0 0 0 / 0.45);
+}
+
+.modalPanel {
+  width: min(520px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border: var(--border-heavy) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-raised);
+  padding: var(--space-4);
 }
 
 .serverPath {
@@ -2114,7 +2222,7 @@ button .buttonIcon {
   .filesPage,
   .schedulePage,
   .settingsPage,
-  .userManagement {
+  .roleMatrix {
     grid-template-columns: 1fr;
   }
 
@@ -2210,6 +2318,19 @@ button .buttonIcon {
 
   .modRow {
     grid-template-columns: 44px 1fr;
+  }
+
+  .userRow {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+
+  .userActions {
+    justify-content: stretch;
+  }
+
+  .userActions button {
+    flex: 1;
   }
 
   .modRow button {

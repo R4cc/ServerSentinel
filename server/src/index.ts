@@ -193,14 +193,18 @@ function normalizeRole(role?: string): UserRole {
 function validateUsername(username?: string) {
   const value = username?.trim();
   if (!value || value.length < 3 || value.length > 32 || !/^[a-zA-Z0-9_.-]+$/.test(value)) {
-    throw new Error("Username must be 3-32 characters and use letters, numbers, dots, dashes, or underscores");
+    const error = new Error("Username must be 3-32 characters and use letters, numbers, dots, dashes, or underscores") as Error & { statusCode?: number };
+    error.statusCode = 400;
+    throw error;
   }
   return value;
 }
 
 function validatePassword(password?: string) {
   if (!password || password.length < 8) {
-    throw new Error("Password must be at least 8 characters");
+    const error = new Error("Password must be at least 8 characters") as Error & { statusCode?: number };
+    error.statusCode = 400;
+    throw error;
   }
   return password;
 }
@@ -1540,7 +1544,9 @@ app.post<{ Body: { username?: string; password?: string; role?: UserRole } }>("/
   const role = normalizeRole(request.body.role);
   const users = await readUsers();
   if (users.some((user) => user.username.toLowerCase() === username.toLowerCase())) {
-    throw new Error("A user with that username already exists");
+    const error = new Error("A user with that username already exists") as Error & { statusCode?: number };
+    error.statusCode = 400;
+    throw error;
   }
   const now = new Date().toISOString();
   const user: StoredUser = {
@@ -1554,6 +1560,64 @@ app.post<{ Body: { username?: string; password?: string; role?: UserRole } }>("/
   users.push(user);
   await writeUsers(users);
   return publicUser(user);
+});
+
+app.put<{ Params: { id: string }; Body: { username?: string; password?: string; role?: UserRole } }>("/api/users/:id", async (request) => {
+  await requireRequestPermission(request, "admin");
+  const users = await readUsers();
+  const index = users.findIndex((user) => user.id === request.params.id);
+  if (index === -1) {
+    const error = new Error("User not found") as Error & { statusCode?: number };
+    error.statusCode = 404;
+    throw error;
+  }
+  const current = users[index];
+  const username = request.body.username === undefined ? current.username : validateUsername(request.body.username);
+  const role = request.body.role === undefined ? current.role : normalizeRole(request.body.role);
+  const password = request.body.password?.trim() ? validatePassword(request.body.password) : undefined;
+  if (users.some((user) => user.id !== current.id && user.username.toLowerCase() === username.toLowerCase())) {
+    const error = new Error("A user with that username already exists") as Error & { statusCode?: number };
+    error.statusCode = 400;
+    throw error;
+  }
+  const adminCount = users.filter((user) => user.role === "admin").length;
+  if (current.role === "admin" && role !== "admin" && adminCount <= 1) {
+    const error = new Error("At least one admin user is required") as Error & { statusCode?: number };
+    error.statusCode = 400;
+    throw error;
+  }
+  users[index] = {
+    ...current,
+    username,
+    role,
+    updatedAt: new Date().toISOString(),
+    ...(password ? hashPassword(password) : {})
+  };
+  await writeUsers(users);
+  return publicUser(users[index]);
+});
+
+app.delete<{ Params: { id: string } }>("/api/users/:id", async (request) => {
+  await requireRequestPermission(request, "admin");
+  const users = await readUsers();
+  const user = users.find((candidate) => candidate.id === request.params.id);
+  if (!user) {
+    const error = new Error("User not found") as Error & { statusCode?: number };
+    error.statusCode = 404;
+    throw error;
+  }
+  if (user.role === "admin" && users.filter((candidate) => candidate.role === "admin").length <= 1) {
+    const error = new Error("At least one admin user is required") as Error & { statusCode?: number };
+    error.statusCode = 400;
+    throw error;
+  }
+  await writeUsers(users.filter((candidate) => candidate.id !== request.params.id));
+  for (const [sessionId, session] of sessions) {
+    if (session.userId === request.params.id) {
+      sessions.delete(sessionId);
+    }
+  }
+  return { ok: true };
 });
 
 app.addHook("preHandler", async (request) => {
