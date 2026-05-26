@@ -2114,17 +2114,17 @@ export default function App() {
 
             {canAdmin && (
               <section className="panel settingsGroup">
-                <div className="settingsGroupHeader">
+                <div className="settingsGroupHeader usersGroupHeader">
                   <span>03</span>
                   <div>
                     <h2>Users</h2>
                   </div>
+                  <button type="button" onClick={() => setUserModal("create")}>New user</button>
                 </div>
                 <UserManagement
                   users={users}
                   currentUserId={authSession.user?.id}
                   editingUser={userModal}
-                  onOpenCreate={() => setUserModal("create")}
                   onOpenEdit={(user) => setUserModal(user)}
                   onCloseModal={() => setUserModal(null)}
                   onCreate={createUser}
@@ -2510,7 +2510,6 @@ function UserManagement({
   users,
   currentUserId,
   editingUser,
-  onOpenCreate,
   onOpenEdit,
   onCloseModal,
   onCreate,
@@ -2520,56 +2519,74 @@ function UserManagement({
   users: PublicUser[];
   currentUserId?: string;
   editingUser: "create" | PublicUser | null;
-  onOpenCreate: () => void;
   onOpenEdit: (user: PublicUser) => void;
   onCloseModal: () => void;
   onCreate: (event: FormEvent<HTMLFormElement>) => void;
   onUpdate: (event: FormEvent<HTMLFormElement>, user: PublicUser) => void;
   onDelete: (user: PublicUser) => void;
 }) {
-  const roles: Array<{ role: UserRole; label: string; permissions: string[] }> = [
-    { role: "basic", label: "Basic", permissions: ["Start, stop, restart"] },
-    { role: "expanded", label: "Expanded", permissions: ["Basic operations", "Console commands", "Scheduled commands"] },
-    { role: "manager", label: "Manager", permissions: ["Expanded operations", "Server settings", "Server create/edit/delete", "Files and mods"] },
-    { role: "admin", label: "Admin", permissions: ["Manager operations", "Create, edit, delete users"] }
-  ];
+  const roleMeta: Record<UserRole, { label: string; description: string }> = {
+    basic: { label: "Basic", description: "Can start, stop, and restart assigned servers." },
+    expanded: { label: "Expanded", description: "Basic access plus console commands and scheduled commands." },
+    manager: { label: "Manager", description: "Can manage server settings, files, mods, and server lifecycle." },
+    admin: { label: "Admin", description: "Full access, including user management." }
+  };
   const modalUser = editingUser && editingUser !== "create" ? editingUser : null;
 
   return (
     <div className="usersSettings">
-      <div className="settingsRow usersHeaderRow">
-        <div>
-          <strong>User accounts</strong>
-        </div>
-        <button type="button" onClick={onOpenCreate}>New user</button>
-      </div>
-
-      <div className="roleMatrix">
-        {roles.map((role) => (
-          <article key={role.role} className="roleCard">
-            <strong>{role.label}</strong>
-            <ul>
-              {role.permissions.map((permission) => <li key={permission}>{permission}</li>)}
-            </ul>
-          </article>
-        ))}
-      </div>
-
-      <div className="userList">
-        {users.map((user) => (
-          <article key={user.id} className="userRow">
-            <div>
-              <strong>{user.username}</strong>
-              {user.id === currentUserId && <span className="currentUserMark">Current user</span>}
-            </div>
-            <span className="settingsStatus">{user.role}</span>
-            <div className="userActions">
-              <button type="button" className="secondaryButton" onClick={() => onOpenEdit(user)}>Edit</button>
-              <button type="button" className="dangerTextButton" onClick={() => onDelete(user)}>Delete</button>
-            </div>
-          </article>
-        ))}
-      </div>
+      <table className="usersTable">
+        <thead>
+          <tr>
+            <th scope="col">User</th>
+            <th scope="col">Role</th>
+            <th scope="col">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {users.map((user) => (
+            <tr key={user.id}>
+              <td>
+                <div className="userNameCell">
+                  <strong>{user.username}</strong>
+                  {user.id === currentUserId && <span className="currentUserMark">Current user</span>}
+                </div>
+              </td>
+              <td>
+                <div className="roleCell">
+                  <span className={`roleBadge ${user.role}`}>{roleMeta[user.role].label}</span>
+                  <span className="roleInfoWrap">
+                    <button
+                      type="button"
+                      className="roleInfoButton"
+                      aria-label={`${roleMeta[user.role].label} role details`}
+                      aria-describedby={`role-tip-${user.id}`}
+                    >
+                      i
+                    </button>
+                    <span id={`role-tip-${user.id}`} role="tooltip" className="roleTooltip">
+                      {roleMeta[user.role].description}
+                    </span>
+                  </span>
+                </div>
+              </td>
+              <td>
+                <div className="userActions">
+                  <button type="button" className="secondaryButton" onClick={() => onOpenEdit(user)}>Edit</button>
+                  <button
+                    type="button"
+                    className="dangerTextButton"
+                    onClick={() => onDelete(user)}
+                    disabled={user.id === currentUserId}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
 
       {editingUser && (
         <div className="modalBackdrop" role="presentation">
