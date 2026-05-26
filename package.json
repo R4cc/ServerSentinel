@@ -11,6 +11,7 @@
     "dev:server": "npm --workspace server run dev",
     "dev:web": "npm --workspace web run dev",
     "build": "npm run build --workspaces",
+    "test": "npm --workspace server run test",
     "typecheck": "npm run typecheck --workspaces",
     "start": "npm --workspace server run start"
   }
