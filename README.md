@@ -1,6 +1,6 @@
 # serverSENTINEL
 
-ServerSentinel is a Dockerized, single-user WebUI for creating and managing Fabric Minecraft servers.
+serverSENTINEL is a Dockerized, single-user WebUI for creating and managing Fabric Minecraft servers.
 
 NOTE: This project is *entirely* coded with AI and it's recommended to only be used in a secure environment.
 
