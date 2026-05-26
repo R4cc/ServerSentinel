@@ -9,31 +9,6 @@ This MVP intentionally has no authentication, no multi-user model, and no databa
 <img width="2652" height="1799" alt="image" src="https://github.com/user-attachments/assets/191c1f82-c15c-4392-a78b-758e5f820fe5" />
 
 
-## What Works
-
-Without Docker socket access:
-
-- Create a managed Fabric server folder.
-- Download the Fabric server launcher from Fabric's official metadata API.
-- Browse files inside managed server directories.
-- View and edit UTF-8 text files in the browser.
-- Read and stream each server's `logs/latest.log` file.
-- Search Modrinth using a server-side `MODRINTH_API_KEY`.
-- Manage installed Fabric `.jar` files, enable/disable/remove mods while the server is stopped, manually upload `.jar` mods, and install compatible mods from Modrinth.
-
-With Docker socket access:
-
-- Create a separate runtime container for each server.
-- Read Minecraft runtime container status.
-- Read current CPU and memory usage for the overview dashboard.
-- Start, stop, and restart the runtime container.
-- Read and stream Docker container logs.
-- Send Minecraft console commands to a running managed runtime container.
-
-Console command input is available for Docker-managed runtime containers while they are running. Server console commands should be entered without a leading `/`; the UI strips a leading slash if one is typed.
-
-The console input supports common Minecraft server command suggestions, Tab completion, and Up/Down history navigation.
-
 ## Runtime Model
 
 ServerSentinel creates server files under `SERVERSENTINEL_SERVERS_DIR`, for example:
