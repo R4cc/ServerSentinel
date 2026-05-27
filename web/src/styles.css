@@ -554,12 +554,12 @@ button .buttonIcon {
 }
 
 .runtimeControlButton {
-  min-height: 40px;
+  min-height: 44px;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   border-radius: 999px;
-  padding: 0 var(--space-3);
+  padding: 0 var(--space-4);
 }
 
 .runtimeControlButton span:last-child {
@@ -1211,7 +1211,7 @@ button .buttonIcon {
   border: var(--border-strong) solid var(--border);
   border-radius: 999px;
   background: var(--surface);
-  padding: 7px 10px;
+  padding: 8px 10px;
   font-size: 11px;
   font-weight: 900;
   letter-spacing: 0.08em;
@@ -3236,7 +3236,7 @@ details.compatibilityBadge p {
   border-radius: var(--radius-md);
   background: var(--surface);
   padding: 0 var(--space-3);
-  height: 40px;
+  height: 44px;
   flex: 1;
   min-width: 0;
 }
@@ -3328,7 +3328,7 @@ details.compatibilityBadge p {
 }
 
 .modsTableCell.actions button {
-  min-height: 32px;
+  min-height: 36px;
   padding: 0 var(--space-3);
   font-size: 12px;
 }
@@ -3577,5 +3577,150 @@ details.compatibilityBadge p {
     align-items: flex-end;
   }
 }
+
+/* Mod Details Modal Refinements */
+.modDetailsPanel {
+  max-width: 600px;
+  width: 100%;
+}
+
+.modDetailsHeaderRow {
+  display: flex;
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+  align-items: center;
+}
+
+.modDetailsIcon,
+.modDetailsIconFallback {
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-sm);
+  border: var(--border-strong) solid var(--border);
+  flex-shrink: 0;
+  object-fit: cover;
+}
+
+.modDetailsIconFallback {
+  font-size: 16px;
+  font-weight: 900;
+  display: grid;
+  place-items: center;
+  background: var(--surface-muted);
+}
+
+.modDetailsHeaderText {
+  display: grid;
+  gap: 4px;
+}
+
+.modDetailsHeaderText strong {
+  font-size: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.modDetailsFilename {
+  font-size: 12px;
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+}
+
+.modDetailsBody {
+  margin-top: var(--space-4);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.modDetailsField {
+  display: grid;
+  gap: 2px;
+}
+
+.modDetailsField div {
+  font-size: 13px;
+}
+
+.modDetailsDesc {
+  font-size: 13px;
+  margin: 4px 0 0;
+  line-height: 1.4;
+  color: var(--text-muted);
+}
+
+.modDetailsGridTwoCol {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+}
+
+.modDetailsDivider {
+  border-top: var(--border-strong) solid var(--border);
+  padding-top: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.modDetailsDivider strong {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.codeValue {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.modDetailsHashes {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  margin-top: 4px;
+  background: var(--surface-muted);
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  border: var(--border-strong) solid var(--border);
+  display: grid;
+  gap: 4px;
+  word-break: break-all;
+}
+
+.emptyInline.noBorder {
+  border: 0;
+}
+
+.modDetailsField div.capitalize {
+  text-transform: capitalize;
+}
+
+.modDetailsHashes span {
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.modDetailsLinkRow {
+  margin-top: var(--space-2);
+}
+
+.modDetailsPill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  text-decoration: none;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.modDetailsLinkIcon {
+  width: 12px;
+  height: 12px;
+  stroke-width: 3;
+}
+
+.modDetailsButtonRow {
+  margin-top: var(--space-5);
+  border-top: var(--border-strong) solid var(--border);
+  padding-top: var(--space-4);
+}
+
 
 

@@ -119,6 +119,7 @@ export default function App() {
   const [modsView, setModsView] = useState<"manager" | "search">("manager");
   const [installedQuery, setInstalledQuery] = useState("");
   const [detailsMod, setDetailsMod] = useState<InstalledMod | null>(null);
+  const [appStateLoaded, setAppStateLoaded] = useState(false);
   const [resourceSamples, setResourceSamples] = useState<ResourceSample[]>([]);
   const [overviewData, setOverviewData] = useState<ServerOverviewData>({ events: [], activity: {} });
   const [commandInput, setCommandInput] = useState("");
@@ -583,6 +584,7 @@ export default function App() {
     setDemoMode(false);
     setAuthSession({ authenticated: false, setupRequired: false, user: null });
     setAppState(emptyApp);
+    setAppStateLoaded(false);
     setActiveServerId("");
     setStatus(null);
     setLogs([]);
@@ -665,6 +667,7 @@ export default function App() {
     try {
       const next = await api<AppState>("/api/app");
       setAppState(next);
+      setAppStateLoaded(true);
       if (demoMode) {
         setActiveServerId(demoServerId);
       } else if (!activeServerId && next.servers[0]) {
@@ -1814,7 +1817,7 @@ export default function App() {
           </div>
         </header>
 
-        {!effectiveAppState.dockerSocketMounted && (
+        {appStateLoaded && !effectiveAppState.dockerSocketMounted && (
           <section className="systemBanner error">
             <strong>Docker integration is not connected.</strong>
             <span>Runtime management is unavailable until the Docker socket is mounted. Creating runtime containers, starting, stopping, restarting, logs, stats, and console command input require Docker integration.</span>
@@ -2263,7 +2266,7 @@ export default function App() {
                         </div>
 
                         {filteredInstalledMods.length === 0 ? (
-                          <div className="emptyInline" style={{ border: 0 }}>No matching installed mods.</div>
+                          <div className="emptyInline noBorder">No matching installed mods.</div>
                         ) : (
                           filteredInstalledMods.map((mod) => {
                             const isComp = mod.compatibility?.compatible;
@@ -2544,104 +2547,96 @@ export default function App() {
 
                   {detailsMod && (
                     <div className="modalBackdrop" role="presentation" onClick={() => setDetailsMod(null)}>
-                      <section className="modalPanel" role="dialog" aria-modal="true" aria-labelledby="details-title" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "600px", width: "100%" }}>
-                        <div className="panelHeader" style={{ borderBottom: "var(--border-strong) solid var(--border)", paddingBottom: "var(--space-3)" }}>
-                          <h2 id="details-title" style={{ fontSize: "18px" }}>Mod Details</h2>
+                      <section className="modalPanel modDetailsPanel" role="dialog" aria-modal="true" aria-labelledby="details-title" onClick={(e) => e.stopPropagation()}>
+                        <div className="panelHeader">
+                          <h2 id="details-title">Mod Details</h2>
                           <button type="button" className="iconButton" onClick={() => setDetailsMod(null)} aria-label="Close details">
                             <AppIcon name="x" />
                           </button>
                         </div>
-                        <div style={{ display: "flex", gap: "var(--space-4)", marginTop: "var(--space-4)" }}>
+                        <div className="modDetailsHeaderRow">
                           {detailsMod.iconUrl ? (
-                            <img src={detailsMod.iconUrl} alt={detailsMod.displayName} style={{ width: "64px", height: "64px", borderRadius: "var(--radius-sm)", border: "var(--border-strong) solid var(--border)", objectFit: "cover" }} />
+                            <img src={detailsMod.iconUrl} alt={detailsMod.displayName} className="modDetailsIcon" />
                           ) : (
-                            <div className="modFileIcon" style={{ width: "64px", height: "64px", fontSize: "16px", fontWeight: "900", display: "grid", placeItems: "center", border: "var(--border-strong) solid var(--border)", borderRadius: "var(--radius-sm)", background: "var(--surface-muted)" }}>JAR</div>
+                            <div className="modDetailsIconFallback">JAR</div>
                           )}
-                          <div style={{ display: "grid", gap: "4px" }}>
-                            <strong style={{ fontSize: "16px", textTransform: "uppercase", letterSpacing: "0.04em" }}>{detailsMod.displayName}</strong>
-                            <span style={{ fontSize: "12px", color: "var(--text-soft)", fontFamily: "var(--font-mono)" }}>{detailsMod.filename}</span>
+                          <div className="modDetailsHeaderText">
+                            <strong>{detailsMod.displayName}</strong>
+                            <span className="modDetailsFilename">{detailsMod.filename}</span>
                           </div>
                         </div>
-                        <div style={{ marginTop: "var(--space-4)", display: "grid", gap: "var(--space-3)" }}>
+                        <div className="modDetailsBody">
                           {detailsMod.description && (
-                            <div>
-                              <strong style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>Description</strong>
-                              <p style={{ fontSize: "13px", margin: "4px 0 0", lineHeight: "1.4" }}>{detailsMod.description}</p>
+                            <div className="modDetailsField">
+                              <strong className="fieldLabel">Description</strong>
+                              <p className="modDetailsDesc">{detailsMod.description}</p>
                             </div>
                           )}
-                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-3)" }}>
-                            <div>
-                              <strong style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>Size</strong>
-                              <div style={{ fontSize: "13px", marginTop: "2px" }}>{formatBytes(detailsMod.size)}</div>
+                          <div className="modDetailsGridTwoCol">
+                            <div className="modDetailsField">
+                              <strong className="fieldLabel">Size</strong>
+                              <div>{formatBytes(detailsMod.size)}</div>
                             </div>
-                            <div>
-                              <strong style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>Last Modified</strong>
-                              <div style={{ fontSize: "13px", marginTop: "2px" }}>{formatDisplayDate(detailsMod.modifiedAt)}</div>
+                            <div className="modDetailsField">
+                              <strong className="fieldLabel">Last Modified</strong>
+                              <div>{formatDisplayDate(detailsMod.modifiedAt)}</div>
                             </div>
                           </div>
                           
                           {detailsMod.modrinth && (
                             <>
-                              <div style={{ borderTop: "var(--border-strong) solid var(--border)", paddingTop: "var(--space-3)" }}>
-                                <strong style={{ fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.08em" }}>Modrinth Metadata</strong>
+                              <div className="modDetailsDivider">
+                                <strong>Modrinth Metadata</strong>
                               </div>
-                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-3)" }}>
-                                <div>
-                                  <strong style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>Project ID</strong>
-                                  <div style={{ fontSize: "13px", marginTop: "2px", fontFamily: "var(--font-mono)" }}>{detailsMod.modrinth.projectId}</div>
+                              <div className="modDetailsGridTwoCol">
+                                <div className="modDetailsField">
+                                  <strong className="fieldLabel">Project ID</strong>
+                                  <div className="codeValue">{detailsMod.modrinth.projectId}</div>
                                 </div>
-                                <div>
-                                  <strong style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>Version ID</strong>
-                                  <div style={{ fontSize: "13px", marginTop: "2px", fontFamily: "var(--font-mono)" }}>{detailsMod.modrinth.versionId}</div>
+                                <div className="modDetailsField">
+                                  <strong className="fieldLabel">Version ID</strong>
+                                  <div className="codeValue">{detailsMod.modrinth.versionId}</div>
                                 </div>
-                                <div>
-                                  <strong style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>Version Number</strong>
-                                  <div style={{ fontSize: "13px", marginTop: "2px" }}>{detailsMod.modrinth.versionNumber}</div>
+                                <div className="modDetailsField">
+                                  <strong className="fieldLabel">Version Number</strong>
+                                  <div>{detailsMod.modrinth.versionNumber}</div>
                                 </div>
-                                <div>
-                                  <strong style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>Installed At</strong>
-                                  <div style={{ fontSize: "13px", marginTop: "2px" }}>{formatDisplayDate(detailsMod.modrinth.installedAt)}</div>
+                                <div className="modDetailsField">
+                                  <strong className="fieldLabel">Installed At</strong>
+                                  <div>{formatDisplayDate(detailsMod.modrinth.installedAt)}</div>
                                 </div>
                               </div>
-                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-3)" }}>
-                                <div>
-                                  <strong style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>Supported Game Versions</strong>
-                                  <div style={{ fontSize: "13px", marginTop: "2px" }}>{detailsMod.modrinth.gameVersions.join(", ")}</div>
+                              <div className="modDetailsGridTwoCol">
+                                <div className="modDetailsField">
+                                  <strong className="fieldLabel">Supported Game Versions</strong>
+                                  <div>{detailsMod.modrinth.gameVersions.join(", ")}</div>
                                 </div>
-                                <div>
-                                  <strong style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>Supported Loaders</strong>
-                                  <div style={{ fontSize: "13px", marginTop: "2px", textTransform: "capitalize" }}>{detailsMod.modrinth.loaders.join(", ")}</div>
+                                <div className="modDetailsField">
+                                  <strong className="fieldLabel">Supported Loaders</strong>
+                                  <div className="capitalize">{detailsMod.modrinth.loaders.join(", ")}</div>
                                 </div>
                               </div>
                               {detailsMod.modrinth.hashes && Object.keys(detailsMod.modrinth.hashes).length > 0 && (
-                                <div>
-                                  <strong style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>File Hashes</strong>
-                                  <div style={{ fontSize: "11px", fontFamily: "var(--font-mono)", marginTop: "4px", background: "var(--surface-muted)", padding: "var(--space-2)", borderRadius: "var(--radius-sm)", border: "var(--border-strong) solid var(--border)", display: "grid", gap: "4px", wordBreak: "break-all" }}>
+                                <div className="modDetailsField">
+                                  <strong className="fieldLabel">File Hashes</strong>
+                                  <div className="modDetailsHashes">
                                     {Object.entries(detailsMod.modrinth.hashes).map(([algo, hash]) => (
                                       <div key={algo}>
-                                        <span style={{ fontWeight: "800", textTransform: "uppercase" }}>{algo}:</span> {hash}
+                                        <span className="hashAlgo">{algo}:</span> {hash}
                                       </div>
                                     ))}
                                   </div>
                                 </div>
                               )}
-                              <div style={{ marginTop: "var(--space-2)" }}>
+                              <div className="modDetailsLinkRow">
                                 <a
                                   href={`https://modrinth.com/mod/${detailsMod.modrinth.projectId}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="pill"
-                                  style={{
-                                    display: "inline-flex",
-                                    alignItems: "center",
-                                    gap: "6px",
-                                    textDecoration: "none",
-                                    borderColor: "var(--accent)",
-                                    color: "var(--accent)"
-                                  }}
+                                  className="pill modDetailsPill"
                                 >
                                   <span>View on Modrinth</span>
-                                  <svg className="buttonIcon" style={{ strokeWidth: 3, width: 12, height: 12 }} viewBox="0 0 24 24">
+                                  <svg className="buttonIcon modDetailsLinkIcon" viewBox="0 0 24 24">
                                     <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3" fill="none" stroke="currentColor" />
                                   </svg>
                                 </a>
@@ -2649,7 +2644,7 @@ export default function App() {
                             </>
                           )}
                         </div>
-                        <div className="buttonRow" style={{ marginTop: "var(--space-5)", borderTop: "var(--border-strong) solid var(--border)", paddingTop: "var(--space-4)" }}>
+                        <div className="buttonRow modDetailsButtonRow">
                           <button type="button" className="secondaryButton" onClick={() => setDetailsMod(null)}>Close</button>
                         </div>
                       </section>
