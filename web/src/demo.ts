@@ -40,19 +40,25 @@ export const demoSearchResults: ModrinthHit[] = [
     project_id: "demo-sodium",
     title: "Sodium",
     description: "Client and server rendering performance mod shown here as demo data.",
-    downloads: 42_500_000
+    downloads: 42_500_000,
+    date_modified: new Date(demoStartedAt - 2 * 86_400_000).toISOString(),
+    compatibility: { status: "compatible", compatible: true, reason: "Compatible with this server" }
   },
   {
     project_id: "demo-ferritecore",
     title: "FerriteCore",
     description: "Memory optimization mod included in the simulated Modrinth search.",
-    downloads: 18_250_000
+    downloads: 18_250_000,
+    date_modified: new Date(demoStartedAt - 7 * 86_400_000).toISOString(),
+    compatibility: { status: "compatible", compatible: true, reason: "Compatible with this server" }
   },
   {
     project_id: "demo-clumps",
     title: "Clumps",
     description: "Groups XP orbs together to reduce server work in busy worlds.",
-    downloads: 31_100_000
+    downloads: 31_100_000,
+    date_modified: new Date(demoStartedAt - 14 * 86_400_000).toISOString(),
+    compatibility: { status: "no_minecraft_version", compatible: false, reason: "Not available for Minecraft 1.21.4" }
   }
 ];
 

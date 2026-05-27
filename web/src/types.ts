@@ -157,6 +157,7 @@ export type ModrinthHit = {
   description: string;
   downloads: number;
   icon_url?: string;
+  date_modified?: string;
   compatibility?: ModCompatibility;
 };
 

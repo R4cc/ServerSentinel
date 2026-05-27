@@ -72,6 +72,7 @@ export type ModrinthProject = {
   description?: string;
   downloads?: number;
   icon_url?: string | null;
+  date_modified?: string;
 };
 
 export type ManagedServer = {

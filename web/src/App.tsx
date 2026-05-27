@@ -16,6 +16,7 @@ import { DeleteServerPanel, ManagedServerForm, ServerEditForm } from "./pages/Se
 
 const appVersion = "0.1.1";
 const serverWorkspacePages: ActivePage[] = ["overview", "console", "files", "mods", "schedule", "properties"];
+type ModCompatibilityFilter = "all" | "compatible" | "incompatible";
 
 function isServerWorkspacePage(page: ActivePage) {
   return serverWorkspacePages.includes(page);
@@ -110,7 +111,9 @@ export default function App() {
   const [query, setQuery] = useState("");
   const [modSearchResults, setModSearchResults] = useState<ModrinthHit[]>([]);
   const [modInstallChannel, setModInstallChannel] = useState<ReleaseChannel>("release");
+  const [modCompatibilityFilter, setModCompatibilityFilter] = useState<ModCompatibilityFilter>("all");
   const [isSearchingMods, setIsSearchingMods] = useState(false);
+  const [modSearchError, setModSearchError] = useState("");
   const [forceInstallProjectId, setForceInstallProjectId] = useState<string | null>(null);
   const [installedMods, setInstalledMods] = useState<InstalledMod[]>([]);
   const [modsView, setModsView] = useState<"manager" | "search">("manager");
@@ -169,6 +172,8 @@ export default function App() {
   const activeServerIsDemo = demoMode && activeServer?.id === demoServerId;
   const activeMinecraftVersion = activeServer ? versionValue(minecraftVersionInfo(activeServer)) : "Unknown";
   const activeFabricLoaderVersion = activeServer ? versionValue(fabricLoaderVersionInfo(activeServer)) : "Unknown";
+  const activeModContext = `Fabric ${activeFabricLoaderVersion === "Unknown" ? "unknown" : activeFabricLoaderVersion} · Minecraft ${activeMinecraftVersion === "Unknown" ? "unknown" : activeMinecraftVersion}`;
+  const activeModVersionsUnknown = activeFabricLoaderVersion === "Unknown" || activeMinecraftVersion === "Unknown";
   const activeStatus = status?.server.id === activeServer?.id ? status : null;
   const currentRole = authSession?.user?.role;
   const canBasic = activeServerIsDemo || (currentRole ? roleRanks[currentRole] >= roleRanks.basic : false);
@@ -187,6 +192,20 @@ export default function App() {
       : minecraftCommandSuggestions.slice(0, 8);
     return matches.slice(0, 8);
   }, [commandInput]);
+
+  const filteredModSearchResults = useMemo(() => {
+    if (modCompatibilityFilter === "compatible") {
+      return modSearchResults.filter((mod) => Boolean(mod.compatibility?.compatible));
+    }
+    if (modCompatibilityFilter === "incompatible") {
+      return modSearchResults.filter((mod) => !mod.compatibility?.compatible);
+    }
+    return modSearchResults;
+  }, [modCompatibilityFilter, modSearchResults]);
+  const forceInstallMod = useMemo(
+    () => modSearchResults.find((mod) => mod.project_id === forceInstallProjectId) ?? null,
+    [forceInstallProjectId, modSearchResults]
+  );
 
 
 
@@ -207,6 +226,15 @@ export default function App() {
   function formatDisplayMegabytes(value: number) {
     if (!value) return "0 MB";
     return `${formatDisplayNumber(Math.round(value / 1024 / 1024))} MB`;
+  }
+
+  function modCompatibilityNote(mod: ModrinthHit) {
+    if (mod.compatibility?.compatible) return "Compatible with this server";
+    return mod.compatibility?.reason || "Compatibility could not be verified.";
+  }
+
+  function formatOptionalModDate(value?: string) {
+    return value ? `Updated ${formatDisplayDate(value)}` : "";
   }
   useEffect(() => {
     void refreshAuth();
@@ -430,6 +458,7 @@ export default function App() {
     if (!activeServer || activePage !== "mods" || modsView !== "search" || !effectiveAppState.modrinthApiConfigured) return;
     const trimmedQuery = query.trim();
     setForceInstallProjectId(null);
+    setModSearchError("");
     if (!trimmedQuery) {
       setModSearchResults([]);
       setIsSearchingMods(false);
@@ -459,8 +488,10 @@ export default function App() {
         if (!cancelled) setModSearchResults(result.hits);
       } catch (error) {
         if (!cancelled) {
-          setNotice((error as Error).message);
-          notify("error", (error as Error).message);
+          const message = (error as Error).message;
+          setModSearchError(message);
+          setNotice(message);
+          notify("error", message);
         }
       } finally {
         if (!cancelled) setIsSearchingMods(false);
@@ -1073,6 +1104,7 @@ export default function App() {
     if (isProvisioning) return;
     if (!activeServer) return;
     setNotice("");
+    setModSearchError("");
     setForceInstallProjectId(null);
     setIsSearchingMods(true);
     if (activeServerIsDemo) {
@@ -1089,8 +1121,10 @@ export default function App() {
       );
       setModSearchResults(result.hits);
     } catch (error) {
-      setNotice((error as Error).message);
-      notify("error", (error as Error).message);
+      const message = (error as Error).message;
+      setModSearchError(message);
+      setNotice(message);
+      notify("error", message);
     } finally {
       setIsSearchingMods(false);
     }
@@ -1152,6 +1186,7 @@ export default function App() {
       setInstalledMods((current) => [mod, ...current.filter((candidate) => candidate.filename !== filename)]);
       setNotice(`Installed ${title} as ${filename}`);
       notify("success", `Installed ${title}`);
+      setForceInstallProjectId(null);
       setModsView("manager");
       return;
     }
@@ -1852,11 +1887,16 @@ export default function App() {
             {activePage === "mods" && (
               <section className="tabPage">
                 <section className="panel modsPanel">
-                  <div className="panelHeader">
-                    <h2>Mods</h2>
-                    <span className={modsLocked ? "warn" : "ok"}>
-                      {!activeStatus ? "Checking server state" : activeStatus.docker.running ? "Stop server to edit mods" : "Mod changes enabled"}
-                    </span>
+                  <div className="panelHeader modsPanelHeader">
+                    <div>
+                      <h2>Mods</h2>
+                    </div>
+                    <div className="modsContext">
+                      <span className={modsLocked ? "warn" : "ok"}>
+                        {!activeStatus ? "Checking server state" : activeStatus.docker.running ? "Stop server to edit mods" : "Mod changes enabled"}
+                      </span>
+                      <small>{activeModContext}</small>
+                    </div>
                   </div>
                   {!effectiveAppState.modrinthApiConfigured && (
                     <section className="systemBanner accent">
@@ -1866,11 +1906,10 @@ export default function App() {
                   )}
                   <div className="modsToolbar">
                     <div className="segmentedControl">
-                      <button className={modsView === "manager" ? "active" : ""} onClick={() => setModsView("manager")}>Installed</button>
-                      <button className={modsView === "search" ? "active" : ""} onClick={() => setModsView("search")} disabled={!effectiveAppState.modrinthApiConfigured || !canManager}>Search</button>
+                      <button className={modsView === "manager" ? "active" : ""} onClick={() => { setForceInstallProjectId(null); setModsView("manager"); }}>Installed</button>
+                      <button className={modsView === "search" ? "active" : ""} onClick={() => { setForceInstallProjectId(null); setModsView("search"); }} disabled={!canManager}>Search</button>
                     </div>
                     <input ref={modUploadRef} className="hiddenInput" type="file" accept=".jar" onChange={uploadMod} />
-                    <span className="muted">Fabric {activeFabricLoaderVersion === "Unknown" ? "loader unknown" : activeFabricLoaderVersion} - Minecraft {activeMinecraftVersion === "Unknown" ? "version unknown" : activeMinecraftVersion}</span>
                   </div>
 
                   {modsView === "manager" && (
@@ -1940,15 +1979,40 @@ export default function App() {
 
                   {modsView === "search" && (
                     <>
-                      <form onSubmit={searchMods} className="modSearch">
-                        <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Modrinth mods" disabled={isProvisioning || !canManager || !effectiveAppState.modrinthApiConfigured} />
-                        <select value={modInstallChannel} onChange={(event) => setModInstallChannel(event.target.value as ReleaseChannel)} disabled={isProvisioning || !canManager}>
+                      <form onSubmit={searchMods} className="modSearchToolbar">
+                        <label className="modSearchInput">
+                          <span aria-hidden="true">
+                            <svg viewBox="0 0 24 24">
+                              <circle cx="11" cy="11" r="6" />
+                              <path d="m16 16 4 4" />
+                            </svg>
+                          </span>
+                          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search Modrinth mods..." disabled={isProvisioning || !canManager || !effectiveAppState.modrinthApiConfigured || activeModVersionsUnknown} />
+                        </label>
+                        <select value={modInstallChannel} onChange={(event) => setModInstallChannel(event.target.value as ReleaseChannel)} disabled={isProvisioning || !canManager || !effectiveAppState.modrinthApiConfigured || activeModVersionsUnknown}>
                           <option value="release">Release</option>
                           <option value="beta">Beta</option>
                           <option value="alpha">Alpha</option>
                         </select>
-                        <button disabled={isProvisioning || !canManager || isSearchingMods || !effectiveAppState.modrinthApiConfigured || !query.trim()}>{isSearchingMods ? "Searching" : "Refresh"}</button>
+                        <div className="compatibilityFilter" aria-label="Compatibility filter">
+                          <strong>Compatibility</strong>
+                          {(["all", "compatible", "incompatible"] as ModCompatibilityFilter[]).map((filter) => (
+                            <button
+                              key={filter}
+                              type="button"
+                              className={modCompatibilityFilter === filter ? "active" : ""}
+                              onClick={() => setModCompatibilityFilter(filter)}
+                            >
+                              {filter === "all" ? "All" : filter === "compatible" ? "Compatible" : "Incompatible"}
+                            </button>
+                          ))}
+                        </div>
+                        <button className="modSearchButton" disabled={isProvisioning || !canManager || isSearchingMods || !effectiveAppState.modrinthApiConfigured || activeModVersionsUnknown || !query.trim()}>{isSearchingMods ? "Searching" : "Search"}</button>
                       </form>
+                      <div className="modResultsHeader">
+                        <strong>Search results</strong>
+                        <span>{isSearchingMods ? "Searching..." : query.trim() ? `${formatDisplayNumber(filteredModSearchResults.length)} shown` : "No query entered"}</span>
+                      </div>
                       <div className="mods">
                         {isSearchingMods && Array.from({ length: 4 }, (_, index) => (
                           <article key={`mod-skeleton-${index}`} className="modRow modSkeleton" aria-hidden="true">
@@ -1961,47 +2025,93 @@ export default function App() {
                             <span className="skeletonBlock button" />
                           </article>
                         ))}
-                        {!isSearchingMods && query.trim() && modSearchResults.length === 0 && (
+                        {!isSearchingMods && !effectiveAppState.modrinthApiConfigured && (
+                          <div className="emptyInline">
+                            <strong>Modrinth API key is not configured</strong>
+                            <span>Add a key in Settings before searching for new mods.</span>
+                          </div>
+                        )}
+                        {!isSearchingMods && effectiveAppState.modrinthApiConfigured && activeModVersionsUnknown && (
+                          <div className="emptyInline">
+                            <strong>Server version unknown</strong>
+                            <span>{activeModContext}. ServerSentinel needs both versions to check compatible Modrinth files.</span>
+                          </div>
+                        )}
+                        {!isSearchingMods && effectiveAppState.modrinthApiConfigured && !activeModVersionsUnknown && !query.trim() && (
+                          <div className="emptyInline">
+                            <strong>Search Modrinth mods</strong>
+                            <span>Enter a mod name to load Fabric results for this server.</span>
+                          </div>
+                        )}
+                        {!isSearchingMods && modSearchError && (
+                          <div className="emptyInline">
+                            <strong>Search request failed</strong>
+                            <span>{modSearchError}</span>
+                          </div>
+                        )}
+                        {!isSearchingMods && !modSearchError && query.trim() && modSearchResults.length === 0 && (
                           <div className="emptyInline">
                             <strong>No mods found</strong>
                             <span>Try a different search term.</span>
                           </div>
                         )}
-                        {modSearchResults.map((mod) => (
-                          <article key={mod.project_id} className={`modRow ${mod.compatibility?.compatible ? "" : "incompatible"}`}>
+                        {!isSearchingMods && !modSearchError && query.trim() && modSearchResults.length > 0 && filteredModSearchResults.length === 0 && (
+                          <div className="emptyInline">
+                            <strong>All results filtered out</strong>
+                            <span>Switch the compatibility filter to see the loaded results.</span>
+                          </div>
+                        )}
+                        {filteredModSearchResults.map((mod) => (
+                          <article key={mod.project_id} className="modRow modSearchResult">
                             {mod.icon_url ? <img src={mod.icon_url} alt="" /> : <div className="modFileIcon">MOD</div>}
-                            <div>
+                            <div className="modResultMain">
                               <div className="modTitleLine">
                                 <strong>{mod.title}</strong>
-                                <span className={`compatibilityBadge ${compatibilityClass(mod.compatibility)}`}>
-                                  {compatibilityLabel(mod.compatibility)}
-                                </span>
                               </div>
                               <p>{mod.description}</p>
-                              {mod.compatibility && !mod.compatibility.compatible && (
-                                <p className="compatibilityReason">{mod.compatibility.reason}</p>
-                              )}
-                              <small>{formatDisplayNumber(mod.downloads)} downloads</small>
-                              {forceInstallProjectId === mod.project_id && !mod.compatibility?.compatible && (
-                                <div className="forceInstallWarning">
-                                  <strong>Force install incompatible mod?</strong>
-                                  <p>This may prevent the server from starting or may cause crashes.</p>
-                                  <div className="buttonRow">
-                                    <button className="dangerButton" onClick={() => installMod(mod.project_id, mod.title, true)} disabled={modsLocked || !effectiveAppState.modrinthApiConfigured}>Force Install</button>
-                                    <button className="secondaryButton" onClick={() => setForceInstallProjectId(null)}>Cancel</button>
-                                  </div>
-                                </div>
+                              <small>
+                                {formatDisplayNumber(mod.downloads)} downloads
+                                {formatOptionalModDate(mod.date_modified) && ` · ${formatOptionalModDate(mod.date_modified)}`}
+                              </small>
+                            </div>
+                            <div className="modCompatibilityColumn">
+                              <span className={`compatibilityBadge ${compatibilityClass(mod.compatibility)}`}>
+                                {compatibilityLabel(mod.compatibility)}
+                              </span>
+                              <p className={mod.compatibility?.compatible ? "compatibilityReason ok" : "compatibilityReason"}>{modCompatibilityNote(mod)}</p>
+                            </div>
+                            <div className="modResultAction">
+                              {mod.compatibility?.compatible ? (
+                                <button onClick={() => installMod(mod.project_id, mod.title)} disabled={modsLocked || !effectiveAppState.modrinthApiConfigured}>Install</button>
+                              ) : (
+                                <button className="secondaryButton" onClick={() => setForceInstallProjectId(mod.project_id)} disabled={modsLocked || !effectiveAppState.modrinthApiConfigured}>Review</button>
                               )}
                             </div>
-                            {mod.compatibility?.compatible ? (
-                              <button onClick={() => installMod(mod.project_id, mod.title)} disabled={modsLocked || !effectiveAppState.modrinthApiConfigured}>Install</button>
-                            ) : (
-                              <button className="dangerTextButton" onClick={() => setForceInstallProjectId(mod.project_id)} disabled={modsLocked || !effectiveAppState.modrinthApiConfigured}>Review Risk</button>
-                            )}
                           </article>
                         ))}
                       </div>
                     </>
+                  )}
+                  {forceInstallMod && (
+                    <div className="modalBackdrop" role="presentation">
+                      <section className="modalPanel forceInstallModal" role="dialog" aria-modal="true" aria-labelledby="force-install-title">
+                        <div className="panelHeader">
+                          <h2 id="force-install-title">Review incompatible mod</h2>
+                          <button type="button" className="iconButton" onClick={() => setForceInstallProjectId(null)} aria-label="Close force install review">
+                            <AppIcon name="x" />
+                          </button>
+                        </div>
+                        <div className="forceInstallWarning">
+                          <strong>{forceInstallMod.title}</strong>
+                          <p>{modCompatibilityNote(forceInstallMod)}</p>
+                          <p>This mod may crash the server or prevent startup. Only force install it if you have reviewed the project and understand the risk.</p>
+                        </div>
+                        <div className="buttonRow">
+                          <button type="button" className="secondaryButton" onClick={() => setForceInstallProjectId(null)}>Cancel</button>
+                          <button type="button" className="dangerButton" onClick={() => installMod(forceInstallMod.project_id, forceInstallMod.title, true)} disabled={modsLocked || !effectiveAppState.modrinthApiConfigured}>Force install</button>
+                        </div>
+                      </section>
+                    </div>
                   )}
                 </section>
               </section>
