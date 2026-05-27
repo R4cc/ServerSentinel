@@ -6,9 +6,9 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
     ...(init?.headers as Record<string, string> | undefined)
   };
   const response = await fetch(path, {
+    ...init,
     headers,
-    credentials: "same-origin",
-    ...init
+    credentials: "same-origin"
   });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {

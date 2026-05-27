@@ -101,6 +101,12 @@ describe("Docker port parsing", () => {
       }
     });
   });
+
+  it("rejects malformed port bindings", () => {
+    expect(() => parseDockerPorts("abc:25565/tcp")).toThrow("Invalid Docker port binding");
+    expect(() => parseDockerPorts("25565:70000/tcp")).toThrow("Invalid Docker port binding");
+    expect(() => parseDockerPorts("25565:25565/http")).toThrow("Invalid Docker port binding");
+  });
 });
 
 describe("mod filename safety", () => {

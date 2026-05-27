@@ -539,11 +539,11 @@ async function inspectDockerContainer(server: ManagedServer) {
 async function ensureDockerContainer(server: ManagedServer) {
   const existing = await inspectDockerContainer(server);
   if (existing) {
+    if (existing.Config?.Labels?.["serversentinel.managed"] !== "true") {
+      throw new Error(`Container ${dockerContainerName(server)} exists but is not managed by ServerSentinel; refusing to control it`);
+    }
     if (dockerContainerMountValid(server, existing)) {
       return;
-    }
-    if (existing.Config?.Labels?.["serversentinel.managed"] !== "true") {
-      throw new Error(`Container ${dockerContainerName(server)} exists but is not managed by ServerSentinel and has an incompatible server volume mount`);
     }
     await removeDockerContainer(server);
   }
@@ -628,14 +628,21 @@ async function dockerStatus(server: ManagedServer) {
         : "Configured container does not exist"
     };
   }
+  const managed = details.Config?.Labels?.["serversentinel.managed"] === "true";
+  const mountValid = dockerContainerMountValid(server, details);
   return {
     configured: true,
     available: true,
-    controllable: true,
+    controllable: managed && mountValid,
     state: details.State?.Status ?? "unknown",
     running: Boolean(details.State?.Running),
     container: dockerContainerName(server),
-    name: details.Name?.replace(/^\//, "")
+    name: details.Name?.replace(/^\//, ""),
+    message: !managed
+      ? "A same-named Docker container exists but is not managed by ServerSentinel"
+      : !mountValid
+        ? "Managed container has an incompatible server volume mount"
+        : undefined
   };
 }
 
@@ -643,8 +650,13 @@ async function dockerAction(server: ManagedServer, action: "start" | "stop" | "r
   if (!dockerControlConfigured(server)) {
     throw new Error("Docker integration is not configured for this managed server instance");
   }
-  if (action === "start") {
+  if (action === "start" || action === "restart") {
     await ensureDockerContainer(server);
+  } else {
+    const existing = await inspectDockerContainer(server);
+    if (existing?.Config?.Labels?.["serversentinel.managed"] !== "true") {
+      throw new Error(`Container ${dockerContainerName(server)} is not managed by ServerSentinel; refusing to control it`);
+    }
   }
   await dockerRequest("POST", `/containers/${encodeURIComponent(dockerContainerName(server))}/${action}`, [200, 204, 304]);
   if (action === "start" || action === "restart") {
@@ -1322,13 +1334,16 @@ async function tickSchedules() {
       }
 
       runningSchedules.add(key);
-      const result = await runScheduledExecution(server, schedule);
-      schedule.lastRunAt = new Date().toISOString();
-      schedule.lastStatus = result.status;
-      schedule.lastMessage = result.message;
-      schedule.updatedAt = schedule.lastRunAt;
-      runningSchedules.delete(key);
-      changed = true;
+      try {
+        const result = await runScheduledExecution(server, schedule);
+        schedule.lastRunAt = new Date().toISOString();
+        schedule.lastStatus = result.status;
+        schedule.lastMessage = result.message;
+        schedule.updatedAt = schedule.lastRunAt;
+        changed = true;
+      } finally {
+        runningSchedules.delete(key);
+      }
     }
   }
 
@@ -1676,7 +1691,7 @@ app.get<{ Params: { id: string } }>("/api/servers/:id/status", async (request) =
     server: publicServer(server),
     docker: docker,
     fileLogsAvailable: Boolean(latestLogPath && existsSync(latestLogPath)),
-    controlAvailable: Boolean(dockerControlConfigured(server) && dockerAvailable()),
+    controlAvailable: Boolean(docker.controllable),
     commandInputAvailable: commandInput.available,
     commandInputMessage: commandInput.message
   };

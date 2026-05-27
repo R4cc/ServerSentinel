@@ -80,7 +80,17 @@ const minecraftCommandSuggestions = [
 ];
 
 function readDemoMode() {
-  return false;
+  return window.localStorage.getItem("serversentinel-demo-mode") === "true";
+}
+
+function readCommandHistory() {
+  try {
+    const raw = window.localStorage.getItem("serversentinel-command-history");
+    const parsed = raw ? JSON.parse(raw) : [];
+    return Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === "string").slice(-50) : [];
+  } catch {
+    return [];
+  }
 }
 
 export default function App() {
@@ -110,10 +120,7 @@ export default function App() {
   const [commandInputFocused, setCommandInputFocused] = useState(false);
   const [consolePinnedToBottom, setConsolePinnedToBottom] = useState(true);
   const [pendingConsoleEntries, setPendingConsoleEntries] = useState(0);
-  const [commandHistory, setCommandHistory] = useState<string[]>(() => {
-    const raw = window.localStorage.getItem("serversentinel-command-history");
-    return raw ? JSON.parse(raw) as string[] : [];
-  });
+  const [commandHistory, setCommandHistory] = useState<string[]>(() => readCommandHistory());
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
   const [fabricVersions, setFabricVersions] = useState<FabricVersions>({ game: [], loader: [], installer: [] });
   const [notice, setNotice] = useState("");
@@ -135,6 +142,7 @@ export default function App() {
   const consoleRef = useRef<HTMLDivElement>(null);
   const previousLogCountRef = useRef(0);
   const modUploadRef = useRef<HTMLInputElement>(null);
+  const activeServerIdRef = useRef("");
   const darkMode = themePreference === "dark" || (themePreference === "system" && systemDark);
   const isProvisioning = provisionJob?.status === "running";
   const effectiveAppState = useMemo<AppState>(() => {
@@ -158,6 +166,7 @@ export default function App() {
     [activeServerId, demoMode, effectiveAppState.servers]
   );
   const activeServerIsDemo = demoMode && activeServer?.id === demoServerId;
+  const activeStatus = status?.server.id === activeServer?.id ? status : null;
   const currentRole = authSession?.user?.role;
   const canBasic = activeServerIsDemo || (currentRole ? roleRanks[currentRole] >= roleRanks.basic : false);
   const canExpanded = activeServerIsDemo || (currentRole ? roleRanks[currentRole] >= roleRanks.expanded : false);
@@ -166,8 +175,8 @@ export default function App() {
   const canAdmin = currentRole === "admin";
   const authOperationalLock = !demoMode && !authSession?.authenticated;
   const dockerOperationalLock = authOperationalLock || !effectiveAppState.dockerSocketMounted;
-  const serverSettingsLocked = isProvisioning || dockerOperationalLock || !canManager || Boolean(status?.docker.running);
-  const modsLocked = isProvisioning || dockerOperationalLock || !canManager || !status || Boolean(status.docker.running);
+  const serverSettingsLocked = isProvisioning || dockerOperationalLock || !canManager || Boolean(activeStatus?.docker.running);
+  const modsLocked = isProvisioning || dockerOperationalLock || !canManager || !activeStatus || Boolean(activeStatus.docker.running);
   const commandSuggestions = useMemo(() => {
     const value = commandInput.trimStart().toLowerCase().replace(/^\//, "");
     const matches = value
@@ -199,6 +208,10 @@ export default function App() {
   useEffect(() => {
     void refreshAuth();
   }, []);
+
+  useEffect(() => {
+    activeServerIdRef.current = activeServer?.id ?? "";
+  }, [activeServer?.id]);
 
   useEffect(() => {
     if (!authSession || (!authSession.authenticated && !demoMode)) return;
@@ -256,19 +269,25 @@ export default function App() {
       setInstalledMods(demoInstalledMods);
       return;
     }
-    refreshStatus(activeServer.id);
-    loadFiles(activeServer.id, "/");
-    loadInstalledMods(activeServer.id);
+    void refreshStatus(activeServer.id);
+    void loadFiles(activeServer.id, "/");
+    void loadInstalledMods(activeServer.id);
 
     const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
     const socket = new WebSocket(`${protocol}//${window.location.host}/ws/console?serverId=${encodeURIComponent(activeServer.id)}`);
     socket.onmessage = (event) => {
-      const message = JSON.parse(event.data);
+      let message: { type?: string; source?: string; text?: string; message?: string };
+      try {
+        message = JSON.parse(event.data);
+      } catch {
+        setLogs(["Console stream sent an unreadable message."]);
+        return;
+      }
       if (message.type === "log") {
-        setLogs((current) => [...current.slice(-499), `[${message.source}] ${message.text}`]);
+        setLogs((current) => [...current.slice(-499), `[${message.source ?? "console"}] ${message.text ?? ""}`]);
       }
       if (message.type === "unavailable") {
-        setLogs([message.message]);
+        setLogs([message.message ?? "Console stream is unavailable."]);
       }
       if (message.type === "empty") {
         setLogs([]);
@@ -611,11 +630,16 @@ export default function App() {
     if (isProvisioning) return;
     if (!serverId) return;
     if (demoMode && serverId === demoServerId) {
-      setStatus(demoStatus(demoServer(demoSchedules), demoRunning));
+      if (activeServerIdRef.current === serverId) {
+        setStatus(demoStatus(demoServer(demoSchedules), demoRunning));
+      }
       return;
     }
     try {
-      setStatus(await api<ServerStatus>(`/api/servers/${serverId}/status`));
+      const nextStatus = await api<ServerStatus>(`/api/servers/${serverId}/status`);
+      if (activeServerIdRef.current === serverId) {
+        setStatus(nextStatus);
+      }
     } catch (error) {
       setNotice((error as Error).message);
     }
@@ -624,14 +648,17 @@ export default function App() {
   async function refreshConsoleLogs(serverId = activeServer?.id) {
     if (!serverId) return;
     if (demoMode && serverId === demoServerId) {
-      setLogs((current) => current.length ? current : [
-        "[demo] Starting minecraft server version 1.21.4",
-        "[demo] Done (5.132s)! For help, type \"help\""
-      ]);
+      if (activeServerIdRef.current === serverId) {
+        setLogs((current) => current.length ? current : [
+          "[demo] Starting minecraft server version 1.21.4",
+          "[demo] Done (5.132s)! For help, type \"help\""
+        ]);
+      }
       return;
     }
     try {
       const result = await api<{ text: string; source: string }>(`/api/servers/${serverId}/logs`);
+      if (activeServerIdRef.current !== serverId) return;
       const lines = result.text.split(/\r?\n/).filter(Boolean).slice(-200);
       setLogs(lines.map((line) => `[${result.source}] ${line}`));
     } catch {
@@ -719,7 +746,7 @@ export default function App() {
       }
       await refreshApp();
       setActiveServerId(server.id);
-      setActivePage("overview");
+      activeServerIdRef.current = server.id;
       setActivePage("overview");
       setConsoleStreamVersion((version) => version + 1);
       await refreshStatus(server.id);
@@ -895,11 +922,16 @@ export default function App() {
     if (isProvisioning) return;
     setNotice("");
     if (demoMode && serverId === demoServerId) {
-      setListing(demoListing(path, demoFiles, demoInstalledMods));
+      if (activeServerIdRef.current === serverId) {
+        setListing(demoListing(path, demoFiles, demoInstalledMods));
+      }
       return;
     }
     try {
-      setListing(await api<FileListing>(`/api/servers/${serverId}/files?path=${encodeURIComponent(path)}`));
+      const nextListing = await api<FileListing>(`/api/servers/${serverId}/files?path=${encodeURIComponent(path)}`);
+      if (activeServerIdRef.current === serverId) {
+        setListing(nextListing);
+      }
     } catch (error) {
       setNotice((error as Error).message);
       notify("error", (error as Error).message);
@@ -909,12 +941,16 @@ export default function App() {
   async function loadInstalledMods(serverId: string) {
     if (isProvisioning) return;
     if (demoMode && serverId === demoServerId) {
-      setInstalledMods(demoInstalledMods);
+      if (activeServerIdRef.current === serverId) {
+        setInstalledMods(demoInstalledMods);
+      }
       return;
     }
     try {
       const result = await api<{ mods: InstalledMod[] }>(`/api/servers/${serverId}/mods`);
-      setInstalledMods(result.mods);
+      if (activeServerIdRef.current === serverId) {
+        setInstalledMods(result.mods);
+      }
     } catch (error) {
       setNotice((error as Error).message);
       notify("error", (error as Error).message);
@@ -1656,11 +1692,11 @@ export default function App() {
                 <span>{activeServer.minecraftVersion || "Version unknown"} · Fabric</span>
               </div>
               <div className="activeServerRuntime">
-                <span className={`runtimeBadge ${runtimeTone(status, effectiveAppState.dockerSocketMounted)}`}>
-                  {runtimeLabel(status, effectiveAppState.dockerSocketMounted)}
+                <span className={`runtimeBadge ${runtimeTone(activeStatus, effectiveAppState.dockerSocketMounted)}`}>
+                  {runtimeLabel(activeStatus, effectiveAppState.dockerSocketMounted)}
                 </span>
                 <RuntimeControls
-                  status={status?.server.id === activeServer.id ? status : null}
+                  status={activeStatus}
                   controlAvailableFallback={effectiveAppState.dockerSocketMounted && activeServer.hasDockerContainer}
                   isProvisioning={isProvisioning || !canBasic}
                   busyAction={runtimeAction}
@@ -1673,7 +1709,7 @@ export default function App() {
               <section className="tabPage overviewPage">
                 <OverviewSummary
                   server={activeServer}
-                  status={status}
+                  status={activeStatus}
                   dockerSocketMounted={effectiveAppState.dockerSocketMounted}
                   activity={overviewData.activity}
                   formatDate={formatDisplayDate}
@@ -1682,7 +1718,7 @@ export default function App() {
                 <ResourcePanel
                   server={activeServer}
                   samples={resourceSamples}
-                  status={status}
+                  status={activeStatus}
                   dockerSocketMounted={effectiveAppState.dockerSocketMounted}
                   formatNumber={formatDisplayNumber}
                 />
@@ -1702,7 +1738,7 @@ export default function App() {
                       <button type="button" onClick={downloadConsoleLogs} disabled={logs.length === 0}>
                         Download log
                       </button>
-                      <span className="muted">{status?.commandInputAvailable ? "Command input enabled" : status?.commandInputMessage}</span>
+                      <span className="muted">{activeStatus?.commandInputAvailable ? "Command input enabled" : activeStatus?.commandInputMessage}</span>
                     </div>
                   </div>
                   <div className="terminal">
@@ -1726,12 +1762,12 @@ export default function App() {
                           onKeyDown={handleCommandKeyDown}
                           onFocus={() => setCommandInputFocused(true)}
                           onBlur={() => window.setTimeout(() => setCommandInputFocused(false), 120)}
-                          placeholder={status?.commandInputAvailable ? "Enter command" : "Console input unavailable"}
-                          disabled={isProvisioning || !canExpanded || !status?.commandInputAvailable}
+                          placeholder={activeStatus?.commandInputAvailable ? "Enter command" : "Console input unavailable"}
+                          disabled={isProvisioning || !canExpanded || !activeStatus?.commandInputAvailable}
                           spellCheck={false}
                           autoComplete="off"
                         />
-                        {commandInputFocused && commandInput.trim().length > 0 && status?.commandInputAvailable && commandSuggestions.length > 0 && (
+                        {commandInputFocused && commandInput.trim().length > 0 && activeStatus?.commandInputAvailable && commandSuggestions.length > 0 && (
                           <div className="suggestions">
                             {commandSuggestions.map((suggestion) => (
                               <button
@@ -1749,7 +1785,7 @@ export default function App() {
                           </div>
                         )}
                       </div>
-                      <button disabled={isProvisioning || !canExpanded || !status?.commandInputAvailable || !commandInput.trim()}>Send</button>
+                      <button disabled={isProvisioning || !canExpanded || !activeStatus?.commandInputAvailable || !commandInput.trim()}>Send</button>
                     </form>
                   </div>
                 </section>
@@ -1809,7 +1845,7 @@ export default function App() {
                   <div className="panelHeader">
                     <h2>Mods</h2>
                     <span className={modsLocked ? "warn" : "ok"}>
-                      {!status ? "Checking server state" : status.docker.running ? "Stop server to edit mods" : "Mod changes enabled"}
+                      {!activeStatus ? "Checking server state" : activeStatus.docker.running ? "Stop server to edit mods" : "Mod changes enabled"}
                     </span>
                   </div>
                   {!effectiveAppState.modrinthApiConfigured && (
@@ -1968,7 +2004,7 @@ export default function App() {
                 onToggle={(schedule) => updateSchedule(schedule, { enabled: !schedule.enabled })}
                 onDelete={deleteSchedule}
                 disabled={isProvisioning || !canExpanded}
-                commandInputMessage={status?.commandInputAvailable ? "" : status?.commandInputMessage || "Scheduled commands need Docker command input when they run."}
+                commandInputMessage={activeStatus?.commandInputAvailable ? "" : activeStatus?.commandInputMessage || "Scheduled commands need Docker command input when they run."}
               />
             )}
 
