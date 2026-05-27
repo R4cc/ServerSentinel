@@ -1498,18 +1498,28 @@ app.addHook("preHandler", async (request) => {
   if (!request.raw.url?.startsWith("/api/") || request.raw.url.startsWith("/api/auth/")) {
     return;
   }
+  const demoMode = request.headers["x-serversentinel-demo-mode"] === "true";
+  if (demoMode) {
+    if (request.method === "GET" && (request.raw.url === "/api/app" || request.raw.url.startsWith("/api/fabric/versions"))) {
+      return;
+    }
+    const error = new Error("Demo mode is active. Disable demo mode before managing real servers.") as Error & { statusCode?: number };
+    error.statusCode = 403;
+    throw error;
+  }
   await requireRequestPermission(request);
 });
 
 app.get("/api/app", async (request) => {
-  const user = await requireRequestPermission(request);
+  const demoMode = request.headers["x-serversentinel-demo-mode"] === "true";
+  const user = demoMode ? null : await requireRequestPermission(request);
   const servers = await readServers();
   return {
     servers: servers.map(publicServer),
     modrinthApiConfigured: Boolean(await modrinthApiKey()),
     dockerSocketMounted: dockerAvailable(),
     totalMemory: totalmem(),
-    currentUser: publicUser(user)
+    currentUser: user ? publicUser(user) : undefined
   };
 });
 

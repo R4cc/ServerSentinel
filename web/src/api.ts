@@ -1,6 +1,8 @@
 export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const demoMode = window.localStorage.getItem("serversentinel-demo-mode") === "true";
   const headers = {
     ...(init?.body === undefined ? {} : { "Content-Type": "application/json" }),
+    ...(demoMode ? { "X-ServerSentinel-Demo-Mode": "true" } : {}),
     ...(init?.headers as Record<string, string> | undefined)
   };
   const response = await fetch(path, {

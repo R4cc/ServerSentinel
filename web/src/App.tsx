@@ -149,15 +149,20 @@ export default function App() {
   }, [appState, demoMode, demoSchedules]);
 
   const activeServer = useMemo(
-    () => effectiveAppState.servers.find((server) => server.id === activeServerId) ?? effectiveAppState.servers[0],
-    [activeServerId, effectiveAppState.servers]
+    () => {
+      if (demoMode) {
+        return effectiveAppState.servers.find((server) => server.id === demoServerId);
+      }
+      return effectiveAppState.servers.find((server) => server.id === activeServerId) ?? effectiveAppState.servers[0];
+    },
+    [activeServerId, demoMode, effectiveAppState.servers]
   );
   const activeServerIsDemo = demoMode && activeServer?.id === demoServerId;
   const currentRole = authSession?.user?.role;
   const canBasic = activeServerIsDemo || (currentRole ? roleRanks[currentRole] >= roleRanks.basic : false);
   const canExpanded = activeServerIsDemo || (currentRole ? roleRanks[currentRole] >= roleRanks.expanded : false);
   const canManager = activeServerIsDemo || (currentRole ? roleRanks[currentRole] >= roleRanks.manager : false);
-  const canManageReal = currentRole ? roleRanks[currentRole] >= roleRanks.manager : false;
+  const canManageReal = !demoMode && (currentRole ? roleRanks[currentRole] >= roleRanks.manager : false);
   const canAdmin = currentRole === "admin";
   const authOperationalLock = !demoMode && !authSession?.authenticated;
   const dockerOperationalLock = authOperationalLock || !effectiveAppState.dockerSocketMounted;
@@ -216,7 +221,7 @@ export default function App() {
       setNotice("");
       setActiveServerId(demoServerId);
       setActivePage("overview");
-      setActivePage("overview");
+      void refreshApp();
     } else if (activeServerId === demoServerId) {
       setActiveServerId("");
       setStatus(null);
@@ -588,14 +593,12 @@ export default function App() {
 
   async function refreshApp() {
     setNotice("");
-    if (demoMode) {
-      if (!activeServerId) setActiveServerId(demoServerId);
-      return;
-    }
     try {
       const next = await api<AppState>("/api/app");
       setAppState(next);
-      if (!activeServerId && next.servers[0]) {
+      if (demoMode) {
+        setActiveServerId(demoServerId);
+      } else if (!activeServerId && next.servers[0]) {
         setActiveServerId(next.servers[0].id);
       }
     } catch (error) {
@@ -669,6 +672,10 @@ export default function App() {
 
   async function createServer(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (demoMode) {
+      notify("error", "Demo mode is enabled. Exit demo mode before creating managed servers.");
+      return;
+    }
     if (dockerOperationalLock || !canManageReal) return;
     setNotice("");
     const form = new FormData(event.currentTarget);
@@ -1348,6 +1355,11 @@ export default function App() {
               <select
                 value={activeServerId}
                 onChange={(event) => {
+                  if (demoMode && event.target.value !== demoServerId) {
+                    notify("info", "Demo mode is enabled. Exit demo mode to access this server.");
+                    setActiveServerId(demoServerId);
+                    return;
+                  }
                   setActiveServerId(event.target.value);
                   if (event.target.value) setActivePage("overview");
                 }}
@@ -1355,7 +1367,9 @@ export default function App() {
               >
                 <option value="">Select managed server</option>
                 {effectiveAppState.servers.map((server) => (
-                  <option key={server.id} value={server.id}>{server.displayName}</option>
+                  <option key={server.id} value={server.id} disabled={demoMode && server.id !== demoServerId}>
+                    {server.displayName}{demoMode && server.id !== demoServerId ? " (demo mode enabled)" : ""}
+                  </option>
                 ))}
               </select>
             </label>
@@ -1363,7 +1377,7 @@ export default function App() {
               type="button"
               className="iconButton addServerButton"
               onClick={() => setActivePage("create")}
-              disabled={isProvisioning || dockerOperationalLock || !canManageReal}
+              disabled={demoMode || isProvisioning || dockerOperationalLock || !canManageReal}
               aria-label="Add server"
               title="Add server"
             >
@@ -1433,7 +1447,7 @@ export default function App() {
             </h2>
           </div>
           <div className="workspaceActions">
-            {activePage === "servers" && <button onClick={() => setActivePage("create")} disabled={isProvisioning || dockerOperationalLock || !canManageReal}>New managed server</button>}
+            {activePage === "servers" && <button onClick={() => setActivePage("create")} disabled={demoMode || isProvisioning || dockerOperationalLock || !canManageReal}>New managed server</button>}
             {activePage === "create" && <button onClick={() => setActivePage("servers")} disabled={isProvisioning}>Cancel</button>}
             {isServerWorkspacePage(activePage) && activeServer && <button onClick={() => refreshStatus()} disabled={isProvisioning}>Refresh</button>}
           </div>
@@ -1456,26 +1470,34 @@ export default function App() {
           <section className="pageStack">
             {effectiveAppState.servers.length > 0 ? (
               <section className="serverList">
-                {effectiveAppState.servers.map((server) => (
-                  <button
-                    key={server.id}
-                    className={`serverListItem ${server.id === activeServer?.id ? "active" : ""}`}
-                    disabled={isProvisioning}
-                    onClick={() => {
-                      setActiveServerId(server.id);
-                      setActivePage("overview");
-                    }}
-                  >
-                    <strong>{server.displayName}</strong>
-                    <span>{server.minecraftVersion || "Version unknown"} · Fabric</span>
-                  </button>
-                ))}
+                {effectiveAppState.servers.map((server) => {
+                  const lockedByDemo = demoMode && server.id !== demoServerId;
+                  return (
+                    <button
+                      key={server.id}
+                      className={`serverListItem ${server.id === activeServer?.id ? "active" : ""}`}
+                      disabled={isProvisioning || lockedByDemo}
+                      onClick={() => {
+                        if (lockedByDemo) {
+                          notify("info", "Demo mode is enabled. Exit demo mode to access this server.");
+                          return;
+                        }
+                        setActiveServerId(server.id);
+                        setActivePage("overview");
+                      }}
+                    >
+                      <strong>{server.displayName}</strong>
+                      <span>{server.minecraftVersion || "Version unknown"} - Fabric</span>
+                      {lockedByDemo && <small>Demo mode is enabled. Disable it in settings to access this server.</small>}
+                    </button>
+                  );
+                })}
               </section>
             ) : (
               <div className="emptyState">
                 <h2>No Managed Servers Yet</h2>
                 <p>Create a managed server instance to generate Fabric server files and launch a separate Minecraft runtime container.</p>
-                <button onClick={() => setActivePage("create")} disabled={isProvisioning || dockerOperationalLock || !canManageReal}>Create Managed Server</button>
+                <button onClick={() => setActivePage("create")} disabled={demoMode || isProvisioning || dockerOperationalLock || !canManageReal}>Create Managed Server</button>
               </div>
             )}
           </section>
@@ -1544,6 +1566,14 @@ export default function App() {
                 </div>
                 <span className="settingsStatus">v{appVersion}</span>
               </div>
+              {demoMode && (
+                <div className="settingsRow">
+                  <div>
+                    <strong>Demo mode</strong>
+                  </div>
+                  <button type="button" className="secondaryButton" onClick={logout} disabled={isProvisioning}>Exit demo mode</button>
+                </div>
+              )}
             </section>
 
             <section className="panel settingsGroup">
@@ -1606,7 +1636,7 @@ export default function App() {
           <section className="emptyState">
             <h2>Welcome to ServerSentinel</h2>
             <p>You do not have any managed server instances yet. Create one to generate server files and launch its separate Minecraft runtime container.</p>
-            <button onClick={() => setActivePage("create")} disabled={isProvisioning || dockerOperationalLock || !canManageReal}>Create Managed Server</button>
+            <button onClick={() => setActivePage("create")} disabled={demoMode || isProvisioning || dockerOperationalLock || !canManageReal}>Create Managed Server</button>
           </section>
         )}
 
