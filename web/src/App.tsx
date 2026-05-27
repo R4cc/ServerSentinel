@@ -1,7 +1,7 @@
 import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import { demoListing, demoOverviewData, demoSearchResults, demoServer, demoServerId, demoStats, demoStatus, initialDemoFiles, initialDemoMods, initialDemoSchedules } from "./demo";
-import type { ActivePage, AppState, AuthSession, FabricVersions, FileEntry, FileListing, InstalledMod, LocalePreference, ManagedServer, ModrinthHit, Notice, ProvisionJob, PublicUser, ReleaseChannel, ResourceSample, ResourceStats, ScheduledExecution, ServerOverviewData, ServerStatus, ThemePreference } from "./types";
+import type { ActivePage, AppState, AuthSession, FabricVersions, FileEntry, FileListing, InstalledMod, LocalePreference, ManagedServer, ModrinthHit, Notice, ProvisionJob, PublicUser, ReleaseChannel, ResourceSample, ResourceStats, ScheduledExecution, ServerOverviewData, ServerStatus, ThemePreference, GeneralJob } from "./types";
 import { bufferToBase64, clientId, isEditableFile, parentPath } from "./utils/files";
 import { compatibilityClass, compatibilityLabel, defaultServerPort, fabricLoaderVersionInfo, formatBytes, isValidServerPort, maxServerPort, minecraftVersionInfo, minServerPort, readLocalePreference, readThemePreference, resourcePollMs, roleRanks, runtimeLabel, runtimeTone, versionValue } from "./utils/format";
 import { AuthPanel, UserManagement } from "./components/AuthPanel";
@@ -128,7 +128,7 @@ export default function App() {
   const [fabricVersions, setFabricVersions] = useState<FabricVersions>({ game: [], loader: [], installer: [] });
   const [notice, setNotice] = useState("");
   const [notices, setNotices] = useState<Notice[]>([]);
-  const [provisionJob, setProvisionJob] = useState<ProvisionJob | null>(null);
+  const [activeJobs, setActiveJobs] = useState<GeneralJob[]>([]);
   const [provisioningError, setProvisioningError] = useState("");
   const [consoleStreamVersion, setConsoleStreamVersion] = useState(0);
   const [runtimeAction, setRuntimeAction] = useState<"start" | "stop" | "restart" | null>(null);
@@ -148,7 +148,8 @@ export default function App() {
   const modUploadRef = useRef<HTMLInputElement>(null);
   const activeServerIdRef = useRef("");
   const darkMode = themePreference === "dark" || (themePreference === "system" && systemDark);
-  const isProvisioning = provisionJob?.status === "running";
+  const isProvisioning = activeJobs.some((job) => job.type === "provision" && job.status === "running");
+  const isAnyModJobRunning = activeJobs.some((job) => (job.type === "mod-install" || job.type === "mod-upload") && job.status === "running");
   const effectiveAppState = useMemo<AppState>(() => {
     if (!demoMode) return appState;
     return {
@@ -184,7 +185,7 @@ export default function App() {
   const authOperationalLock = !demoMode && !authSession?.authenticated;
   const dockerOperationalLock = authOperationalLock || !effectiveAppState.dockerSocketMounted;
   const serverSettingsLocked = isProvisioning || dockerOperationalLock || !canManager || Boolean(activeStatus?.docker.running);
-  const modsLocked = isProvisioning || dockerOperationalLock || !canManager || !activeStatus || Boolean(activeStatus.docker.running);
+  const modsLocked = isProvisioning || dockerOperationalLock || !canManager || !activeStatus || Boolean(activeStatus.docker.running) || isAnyModJobRunning;
   const commandSuggestions = useMemo(() => {
     const value = commandInput.trimStart().toLowerCase().replace(/^\//, "");
     const matches = value
@@ -722,7 +723,15 @@ export default function App() {
   async function waitForProvisionJob(jobId: string) {
     for (;;) {
       const job = await api<ProvisionJob>(`/api/provision/${jobId}`);
-      setProvisionJob(job);
+      setActiveJobs((current) => current.map((j) => j.id === "local" || j.id === jobId ? {
+        ...j,
+        id: job.id,
+        status: job.status,
+        progress: job.progress,
+        task: job.task,
+        error: job.error,
+        dismissible: job.status !== "running"
+      } : j));
       if (job.status === "succeeded") return job;
       if (job.status === "failed") {
         throw new Error(job.error || "Server setup failed");
@@ -748,12 +757,18 @@ export default function App() {
       return;
     }
     setProvisioningError("");
-    setProvisionJob({
+    const displayName = String(form.get("displayName") || "");
+    const initialJob: GeneralJob = {
       id: "local",
+      type: "provision",
       status: "running",
+      title: "Creating server",
+      subject: displayName,
       progress: 0,
-      task: "Submitting server setup"
-    });
+      task: "Submitting server setup",
+      dismissible: false
+    };
+    setActiveJobs((current) => [...current, initialJob]);
     try {
       const job = await api<ProvisionJob>("/api/servers/provision", {
         method: "POST",
@@ -773,7 +788,15 @@ export default function App() {
           acceptEula: form.get("acceptEula") === "on"
         })
       });
-      setProvisionJob(job);
+      setActiveJobs((current) => current.map((j) => j.id === "local" ? {
+        ...j,
+        id: job.id,
+        status: job.status,
+        progress: job.progress,
+        task: job.task,
+        error: job.error,
+        dismissible: job.status !== "running"
+      } : j));
       const completed = await waitForProvisionJob(job.id);
       const server = completed.server;
       if (!server) {
@@ -787,13 +810,21 @@ export default function App() {
       await refreshStatus(server.id);
       await refreshConsoleLogs(server.id);
       notify("success", `Created ${server.displayName}`);
-      window.setTimeout(() => setProvisionJob(null), 1200);
+      window.setTimeout(() => {
+        setActiveJobs((current) => current.filter((j) => j.id !== job.id));
+      }, 1200);
     } catch (error) {
       const message = (error as Error).message;
       setNotice(message);
       setProvisioningError(message);
       notify("error", message);
-      setProvisionJob((current) => current ? { ...current, status: "failed", task: "Server setup failed", error: message } : null);
+      setActiveJobs((current) => current.map((j) => j.id === "local" || (j.type === "provision" && j.status === "running") ? {
+        ...j,
+        status: "failed",
+        task: "Server setup failed",
+        error: message,
+        dismissible: true
+      } : j));
     }
   }
 
@@ -1140,30 +1171,77 @@ export default function App() {
       return;
     }
     setNotice("");
+    const jobId = `upload-${file.name}-${Date.now()}`;
+    const initialJob: GeneralJob = {
+      id: jobId,
+      type: "mod-upload",
+      status: "running",
+      title: "Uploading mod",
+      subject: file.name,
+      progress: 10,
+      task: "Reading file",
+      dismissible: false
+    };
+    setActiveJobs((current) => [...current, initialJob]);
+
     if (activeServerIsDemo) {
-      const mod: InstalledMod = {
-        filename: file.name,
-        displayName: file.name.replace(/\.jar$/i, "").replace(/[-_]/g, " "),
-        enabled: true,
-        size: file.size,
-        modifiedAt: new Date().toISOString()
-      };
-      setDemoInstalledMods((current) => [mod, ...current.filter((candidate) => candidate.filename !== mod.filename)]);
-      setInstalledMods((current) => [mod, ...current.filter((candidate) => candidate.filename !== mod.filename)]);
-      notify("success", `Uploaded ${file.name}`);
+      try {
+        await new Promise((resolve) => window.setTimeout(resolve, 500));
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, progress: 40, task: "Uploading jar" } : j));
+        await new Promise((resolve) => window.setTimeout(resolve, 800));
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, progress: 70, task: "Saving mod file" } : j));
+        await new Promise((resolve) => window.setTimeout(resolve, 400));
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, progress: 95, task: "Refreshing installed mods" } : j));
+
+        const mod: InstalledMod = {
+          filename: file.name,
+          displayName: file.name.replace(/\.jar$/i, "").replace(/[-_]/g, " "),
+          enabled: true,
+          size: file.size,
+          modifiedAt: new Date().toISOString()
+        };
+        setDemoInstalledMods((current) => [mod, ...current.filter((candidate) => candidate.filename !== mod.filename)]);
+        setInstalledMods((current) => [mod, ...current.filter((candidate) => candidate.filename !== mod.filename)]);
+        notify("success", `Uploaded ${file.name}`);
+
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, status: "succeeded", progress: 100, task: `Uploaded ${file.name}`, dismissible: true } : j));
+        window.setTimeout(() => {
+          setActiveJobs((current) => current.filter((j) => j.id !== jobId));
+        }, 4000);
+      } catch (err) {
+        const msg = (err as Error).message;
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, status: "failed", task: "Upload failed", error: msg, dismissible: true } : j));
+      }
       return;
     }
+
     try {
+      const arrayBuffer = await file.arrayBuffer();
+      setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, progress: 40, task: "Uploading jar" } : j));
+
       await api(`/api/servers/${activeServer.id}/mods/upload`, {
         method: "POST",
-        body: JSON.stringify({ filename: file.name, contentBase64: bufferToBase64(await file.arrayBuffer()) })
+        body: JSON.stringify({ filename: file.name, contentBase64: bufferToBase64(arrayBuffer) })
       });
       notify("success", `Uploaded ${file.name}`);
-      await loadInstalledMods(activeServer.id);
-      await loadFiles(activeServer.id, "/mods");
+
+      setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, progress: 90, task: "Refreshing installed mods" } : j));
+      try {
+        await loadInstalledMods(activeServer.id);
+        await loadFiles(activeServer.id, "/mods");
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, status: "succeeded", progress: 100, task: `Uploaded ${file.name}`, dismissible: true } : j));
+      } catch (refreshErr) {
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, status: "succeeded", progress: 100, task: `Uploaded ${file.name}, but failed to refresh mod list`, error: (refreshErr as Error).message, dismissible: true } : j));
+      }
+
+      window.setTimeout(() => {
+        setActiveJobs((current) => current.filter((j) => j.id !== jobId));
+      }, 4000);
     } catch (error) {
-      setNotice((error as Error).message);
-      notify("error", (error as Error).message);
+      const message = (error as Error).message;
+      setNotice(message);
+      notify("error", message);
+      setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, status: "failed", task: "Upload failed", error: message, dismissible: true } : j));
     } finally {
       setIsSearchingMods(false);
     }
@@ -1173,24 +1251,59 @@ export default function App() {
     if (modsLocked || !canManager) return;
     if (!activeServer) return;
     setNotice("");
+    const jobId = `install-${projectId}-${Date.now()}`;
+    const initialJob: GeneralJob = {
+      id: jobId,
+      type: "mod-install",
+      status: "running",
+      title: forceIncompatible ? "Force installing mod" : "Installing mod",
+      subject: title,
+      progress: 10,
+      task: forceIncompatible ? "Installing despite compatibility warning" : "Checking compatibility",
+      dismissible: false
+    };
+    setActiveJobs((current) => [...current, initialJob]);
+
     if (activeServerIsDemo) {
-      const filename = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || projectId}-demo.jar`;
-      const mod: InstalledMod = {
-        filename,
-        displayName: title,
-        enabled: true,
-        size: 1_048_576 + Math.round(Math.random() * 2_000_000),
-        modifiedAt: new Date().toISOString()
-      };
-      setDemoInstalledMods((current) => [mod, ...current.filter((candidate) => candidate.filename !== filename)]);
-      setInstalledMods((current) => [mod, ...current.filter((candidate) => candidate.filename !== filename)]);
-      setNotice(`Installed ${title} as ${filename}`);
-      notify("success", `Installed ${title}`);
-      setForceInstallProjectId(null);
-      setModsView("manager");
+      try {
+        await new Promise((resolve) => window.setTimeout(resolve, 600));
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, progress: 40, task: "Resolving version" } : j));
+        await new Promise((resolve) => window.setTimeout(resolve, 800));
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, progress: 70, task: "Downloading jar" } : j));
+        await new Promise((resolve) => window.setTimeout(resolve, 600));
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, progress: 90, task: "Saving mod file" } : j));
+        await new Promise((resolve) => window.setTimeout(resolve, 400));
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, progress: 95, task: "Refreshing installed mods" } : j));
+
+        const filename = `${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || projectId}-demo.jar`;
+        const mod: InstalledMod = {
+          filename,
+          displayName: title,
+          enabled: true,
+          size: 1_048_576 + Math.round(Math.random() * 2_000_000),
+          modifiedAt: new Date().toISOString()
+        };
+        setDemoInstalledMods((current) => [mod, ...current.filter((candidate) => candidate.filename !== filename)]);
+        setInstalledMods((current) => [mod, ...current.filter((candidate) => candidate.filename !== filename)]);
+        setNotice(`Installed ${title} as ${filename}`);
+        notify("success", `Installed ${title}`);
+        setForceInstallProjectId(null);
+        setModsView("manager");
+
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, status: "succeeded", progress: 100, task: `Installed ${title}`, dismissible: true } : j));
+        window.setTimeout(() => {
+          setActiveJobs((current) => current.filter((j) => j.id !== jobId));
+        }, 4000);
+      } catch (err) {
+        const msg = (err as Error).message;
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, status: "failed", task: "Install failed", error: msg, dismissible: true } : j));
+      }
       return;
     }
+
     try {
+      setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, progress: 40, task: "Resolving version and downloading jar" } : j));
+
       const result = await api<{ filename: string; version: string; channel: ReleaseChannel }>("/api/modrinth/install", {
         method: "POST",
         body: JSON.stringify({ serverId: activeServer.id, projectId, channel: modInstallChannel, forceIncompatible })
@@ -1199,11 +1312,24 @@ export default function App() {
       setNotice(`Installed ${title} ${result.version} (${result.channel}) as ${result.filename}`);
       notify("success", `Installed ${title}`);
       setModsView("manager");
-      await loadInstalledMods(activeServer.id);
-      await loadFiles(activeServer.id, "/mods");
+
+      setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, progress: 90, task: "Refreshing installed mods" } : j));
+      try {
+        await loadInstalledMods(activeServer.id);
+        await loadFiles(activeServer.id, "/mods");
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, status: "succeeded", progress: 100, task: `Installed ${title}`, dismissible: true } : j));
+      } catch (refreshErr) {
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, status: "succeeded", progress: 100, task: `Installed ${title}, but failed to refresh mod list`, error: (refreshErr as Error).message, dismissible: true } : j));
+      }
+
+      window.setTimeout(() => {
+        setActiveJobs((current) => current.filter((j) => j.id !== jobId));
+      }, 4000);
     } catch (error) {
-      setNotice((error as Error).message);
-      notify("error", (error as Error).message);
+      const message = (error as Error).message;
+      setNotice(message);
+      notify("error", message);
+      setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, status: "failed", task: "Install failed", error: message, dismissible: true } : j));
     }
   }
 
@@ -1411,7 +1537,7 @@ export default function App() {
 
   return (
     <main className={`appShell ${sidebarCollapsed ? "sidebarCollapsed" : ""} ${darkMode ? "themeDark" : "themeLight"}`}>
-      <Notifications notices={notices} provisioningJob={provisionJob} onDismissProvisioning={() => setProvisionJob(null)} />
+      <Notifications notices={notices} activeJobs={activeJobs} onDismissJob={(jobId) => setActiveJobs(current => current.filter(j => j.id !== jobId))} />
       <aside className="sidebar">
         <div className="brandBlock">
           <div className="brandLockup">

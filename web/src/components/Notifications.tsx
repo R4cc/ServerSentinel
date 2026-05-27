@@ -1,56 +1,56 @@
-import type { Notice, ProvisionJob } from '../types';
-
-function provisioningTitle(job: ProvisionJob) {
-  if (job.status === "succeeded") return "Server created successfully";
-  if (job.status === "failed") return "Server setup failed";
-  return "Creating server";
-}
-
-function provisioningStatus(job: ProvisionJob) {
-  if (job.status === "succeeded") return "Complete";
-  if (job.status === "failed") return "Failed";
-  return "Running";
-}
+import type { Notice, GeneralJob } from '../types';
 
 export function Notifications({
   notices,
-  provisioningJob,
-  onDismissProvisioning
+  activeJobs,
+  onDismissJob
 }: {
   notices: Notice[];
-  provisioningJob: ProvisionJob | null;
-  onDismissProvisioning: () => void;
+  activeJobs: GeneralJob[];
+  onDismissJob: (id: string) => void;
 }) {
-  const progress = provisioningJob ? Math.max(0, Math.min(100, provisioningJob.progress)) : 0;
   return (
     <div className="toastRegion">
-      {provisioningJob && (
-        <div className={`toast provisioningToast ${provisioningJob.status}`} role="status" aria-live="polite">
-          <div className="provisioningToastHeader">
-            <div>
-              <strong>{provisioningTitle(provisioningJob)}</strong>
-              <span>{provisioningStatus(provisioningJob)}</span>
+      {activeJobs.map((job) => {
+        const progress = Math.max(0, Math.min(100, job.progress));
+        return (
+          <div key={job.id} className={`toast provisioningToast ${job.status}`} role="status" aria-live="polite">
+            <div className="provisioningToastHeader">
+              <div>
+                <strong>{job.title}</strong>
+                <span>{job.status === "succeeded" ? "Complete" : job.status === "failed" ? "Failed" : "Running"}</span>
+              </div>
+              {job.dismissible && (
+                <button
+                  type="button"
+                  className="toastDismissButton"
+                  onClick={() => onDismissJob(job.id)}
+                  aria-label={`Dismiss ${job.title} notification`}
+                >
+                  x
+                </button>
+              )}
             </div>
-            {provisioningJob.status !== "running" && (
-              <button type="button" className="toastDismissButton" onClick={onDismissProvisioning} aria-label="Dismiss server setup notification">
-                x
-              </button>
+            {job.subject && (
+              <p style={{ fontWeight: 800, margin: "2px 0 6px", textTransform: "none", letterSpacing: "normal", color: "var(--text)" }}>
+                {job.subject}
+              </p>
             )}
+            <p>{job.error || job.task}</p>
+            <div
+              className="progressTrack"
+              aria-label={`${job.title} progress`}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-valuenow={progress}
+              role="progressbar"
+            >
+              <span style={{ width: `${progress}%` }} />
+            </div>
+            <small>{Math.round(progress)}%</small>
           </div>
-          <p>{provisioningJob.error || provisioningJob.task}</p>
-          <div
-            className="progressTrack"
-            aria-label="Server setup progress"
-            aria-valuemin={0}
-            aria-valuemax={100}
-            aria-valuenow={progress}
-            role="progressbar"
-          >
-            <span style={{ width: `${progress}%` }} />
-          </div>
-          <small>{Math.round(progress)}%</small>
-        </div>
-      )}
+        );
+      })}
       {notices.map((notice) => (
         <div key={notice.id} className={`toast ${notice.type}`}>{notice.text}</div>
       ))}

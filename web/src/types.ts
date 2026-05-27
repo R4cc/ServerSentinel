@@ -224,6 +224,18 @@ export type ProvisionJob = {
   error?: string;
 };
 
+export type GeneralJob = {
+  id: string;
+  type: "provision" | "mod-install" | "mod-upload";
+  status: "running" | "succeeded" | "failed";
+  title: string;
+  subject?: string;
+  progress: number;
+  task: string;
+  error?: string;
+  dismissible: boolean;
+};
+
 export type ActivePage = "servers" | "settings" | "create" | "overview" | "console" | "files" | "mods" | "schedule" | "properties";
 
 export type ThemePreference = "light" | "dark" | "system";
