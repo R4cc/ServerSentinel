@@ -20,18 +20,134 @@ export const initialDemoSchedules: ScheduledExecution[] = [{
 
 export const initialDemoMods: InstalledMod[] = [
   {
-    filename: "fabric-api-demo.jar",
-    displayName: "Fabric API",
+    filename: "distanthorizons-3.0.3-b-26.1.2-fabric-neoforge.jar",
+    displayName: "Distant Horizons",
+    description: "Level-of-detail rendering for long distance terrain.",
     enabled: true,
-    size: 2_840_576,
-    modifiedAt: new Date(demoStartedAt - 172_800_000).toISOString()
+    size: 4512000,
+    modifiedAt: new Date(demoStartedAt - 172_800_000).toISOString(),
+    compatibility: { status: "compatible", compatible: true, reason: "Compatible with this server", matchedGameVersions: ["26.1.2"] },
+    versionInfo: {
+      currentVersion: "3.0.3-b-26.1.2",
+      currentChannel: "release",
+      latestVersion: "3.0.3-b-26.1.2",
+      latestChannel: "release",
+      upToDate: true
+    },
+    modrinth: {
+      projectId: "distant-horizons",
+      versionId: "dh-123",
+      filename: "distanthorizons-3.0.3-b-26.1.2-fabric-neoforge.jar",
+      versionNumber: "3.0.3-b-26.1.2",
+      gameVersions: ["26.1.2"],
+      loaders: ["fabric"],
+      installedAt: new Date(demoStartedAt - 172_800_000).toISOString(),
+      installedWithForceIncompatible: false
+    }
   },
   {
-    filename: "lithium-demo.jar",
-    displayName: "Lithium",
+    filename: "fabric-api-0.149.1+26.1.2.jar",
+    displayName: "Fabric API",
+    description: "Core library required for Fabric mods.",
     enabled: true,
-    size: 734_208,
-    modifiedAt: new Date(demoStartedAt - 86_400_000).toISOString()
+    size: 2840576,
+    modifiedAt: new Date(demoStartedAt - 172_800_000).toISOString(),
+    compatibility: { status: "compatible", compatible: true, reason: "Compatible with this server", matchedGameVersions: ["26.1.2"] },
+    versionInfo: {
+      currentVersion: "0.149.1+26.1.2",
+      currentChannel: "release",
+      latestVersion: "0.149.1+26.1.2",
+      latestChannel: "release",
+      upToDate: true
+    },
+    modrinth: {
+      projectId: "fabric-api",
+      versionId: "fapi-123",
+      filename: "fabric-api-0.149.1+26.1.2.jar",
+      versionNumber: "0.149.1+26.1.2",
+      gameVersions: ["26.1.2"],
+      loaders: ["fabric"],
+      installedAt: new Date(demoStartedAt - 172_800_000).toISOString(),
+      installedWithForceIncompatible: false
+    }
+  },
+  {
+    filename: "krypton-0.3.0.jar",
+    displayName: "Krypton",
+    description: "Improves networking performance.",
+    enabled: true,
+    size: 98000,
+    modifiedAt: new Date(demoStartedAt - 172_800_000).toISOString(),
+    compatibility: { status: "compatible", compatible: true, reason: "Compatible with this server", matchedGameVersions: ["26.1.2"] },
+    versionInfo: {
+      currentVersion: "0.3.0",
+      currentChannel: "release",
+      latestVersion: "0.3.0",
+      latestChannel: "release",
+      upToDate: true
+    },
+    modrinth: {
+      projectId: "krypton",
+      versionId: "kry-123",
+      filename: "krypton-0.3.0.jar",
+      versionNumber: "0.3.0",
+      gameVersions: ["26.1.2"],
+      loaders: ["fabric"],
+      installedAt: new Date(demoStartedAt - 172_800_000).toISOString(),
+      installedWithForceIncompatible: false
+    }
+  },
+  {
+    filename: "sodium-fabric-0.5.8+mc26.1.2.jar",
+    displayName: "Sodium",
+    description: "Graphics optimization mod.",
+    enabled: true,
+    size: 1234567,
+    modifiedAt: new Date(demoStartedAt - 86_400_000).toISOString(),
+    compatibility: { status: "compatible", compatible: true, reason: "Compatible with this server", matchedGameVersions: ["26.1.2"] },
+    versionInfo: {
+      currentVersion: "0.5.8",
+      currentChannel: "release",
+      latestVersion: "0.6.0",
+      latestChannel: "release",
+      upToDate: false
+    },
+    modrinth: {
+      projectId: "sodium",
+      versionId: "sod-123",
+      filename: "sodium-fabric-0.5.8+mc26.1.2.jar",
+      versionNumber: "0.5.8",
+      gameVersions: ["26.1.2"],
+      loaders: ["fabric"],
+      installedAt: new Date(demoStartedAt - 86_400_000).toISOString(),
+      installedWithForceIncompatible: false
+    }
+  },
+  {
+    filename: "lithium-fabric-0.2.4.2_mc26.1.2.jar",
+    displayName: "Lithium",
+    description: "General server performance improvements.",
+    enabled: true,
+    size: 734208,
+    modifiedAt: new Date(demoStartedAt - 86_400_000).toISOString(),
+    compatibility: { status: "compatible", compatible: true, reason: "Compatible with this server", matchedGameVersions: ["26.1.2"] },
+    versionInfo: {
+      currentVersion: "0.2.4.2+mc26.1.2",
+      currentChannel: "release",
+      latestVersion: "0.2.4.2+mc26.1.2",
+      latestChannel: "release",
+      upToDate: true
+    },
+    modrinth: {
+      projectId: "lithium",
+      versionId: "lit-123",
+      filename: "lithium-fabric-0.2.4.2_mc26.1.2.jar",
+      versionNumber: "0.2.4.2+mc26.1.2",
+      gameVersions: ["26.1.2"],
+      loaders: ["fabric"],
+      installedAt: new Date(demoStartedAt - 86_400_000).toISOString(),
+      installedWithForceIncompatible: false
+    }
   }
 ];
 

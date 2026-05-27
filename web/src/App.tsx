@@ -117,6 +117,9 @@ export default function App() {
   const [forceInstallProjectId, setForceInstallProjectId] = useState<string | null>(null);
   const [installedMods, setInstalledMods] = useState<InstalledMod[]>([]);
   const [modsView, setModsView] = useState<"manager" | "search">("manager");
+  const [installedQuery, setInstalledQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [detailsMod, setDetailsMod] = useState<InstalledMod | null>(null);
   const [resourceSamples, setResourceSamples] = useState<ResourceSample[]>([]);
   const [overviewData, setOverviewData] = useState<ServerOverviewData>({ events: [], activity: {} });
   const [commandInput, setCommandInput] = useState("");
@@ -193,6 +196,20 @@ export default function App() {
       : minecraftCommandSuggestions.slice(0, 8);
     return matches.slice(0, 8);
   }, [commandInput]);
+
+  const filteredInstalledMods = useMemo(() => {
+    return installedMods.filter(mod => {
+      const matchesSearch = mod.displayName.toLowerCase().includes(installedQuery.toLowerCase()) ||
+                            mod.filename.toLowerCase().includes(installedQuery.toLowerCase()) ||
+                            (mod.description || "").toLowerCase().includes(installedQuery.toLowerCase());
+      if (!matchesSearch) return false;
+      if (statusFilter === "enabled") return mod.enabled;
+      if (statusFilter === "disabled") return !mod.enabled;
+      if (statusFilter === "update") return mod.versionInfo?.upToDate === false;
+      if (statusFilter === "warning") return mod.compatibility?.compatible === false;
+      return true;
+    });
+  }, [installedMods, installedQuery, statusFilter]);
 
   const filteredModSearchResults = useMemo(() => {
     if (modCompatibilityFilter === "compatible") {
@@ -1333,6 +1350,105 @@ export default function App() {
     }
   }
 
+  async function updateMod(mod: InstalledMod) {
+    if (modsLocked || !canManager || !activeServer || !mod.modrinth) return;
+    setNotice("");
+    const projectId = mod.modrinth.projectId;
+    const title = mod.displayName;
+    const oldFilename = mod.filename;
+    const jobId = `update-${projectId}-${Date.now()}`;
+    const initialJob: GeneralJob = {
+      id: jobId,
+      type: "mod-install",
+      status: "running",
+      title: "Updating mod",
+      subject: title,
+      progress: 10,
+      task: "Checking compatibility",
+      dismissible: false
+    };
+    setActiveJobs((current) => [...current, initialJob]);
+
+    if (activeServerIsDemo) {
+      try {
+        await new Promise((resolve) => window.setTimeout(resolve, 600));
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, progress: 45, task: "Downloading update" } : j));
+        await new Promise((resolve) => window.setTimeout(resolve, 800));
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, progress: 80, task: "Removing old jar" } : j));
+        await new Promise((resolve) => window.setTimeout(resolve, 600));
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, progress: 95, task: "Refreshing installed mods" } : j));
+
+        const updatedMod: InstalledMod = {
+          ...mod,
+          filename: "sodium-fabric-0.6.0+mc26.1.2.jar",
+          size: 1250000,
+          modifiedAt: new Date().toISOString(),
+          versionInfo: {
+            currentVersion: "0.6.0",
+            currentChannel: "release",
+            latestVersion: "0.6.0",
+            latestChannel: "release",
+            upToDate: true
+          },
+          modrinth: {
+            ...mod.modrinth,
+            filename: "sodium-fabric-0.6.0+mc26.1.2.jar",
+            versionNumber: "0.6.0",
+            installedAt: new Date().toISOString()
+          }
+        };
+
+        setDemoInstalledMods((current) => [updatedMod, ...current.filter((candidate) => candidate.filename !== oldFilename)]);
+        setInstalledMods((current) => [updatedMod, ...current.filter((candidate) => candidate.filename !== oldFilename)]);
+        notify("success", `Updated ${title} to 0.6.0`);
+
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, status: "succeeded", progress: 100, task: `Updated ${title}`, dismissible: true } : j));
+        window.setTimeout(() => {
+          setActiveJobs((current) => current.filter((j) => j.id !== jobId));
+        }, 4000);
+      } catch (err) {
+        const msg = (err as Error).message;
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, status: "failed", task: "Update failed", error: msg, dismissible: true } : j));
+      }
+      return;
+    }
+
+    try {
+      setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, progress: 30, task: "Downloading new version" } : j));
+      
+      const result = await api<{ filename: string; version: string; channel: ReleaseChannel }>("/api/modrinth/install", {
+        method: "POST",
+        body: JSON.stringify({ serverId: activeServer.id, projectId, channel: mod.preferredChannel || "release", forceIncompatible: mod.modrinth.installedWithForceIncompatible })
+      });
+
+      setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, progress: 70, task: "Removing old version" } : j));
+
+      await api(`/api/servers/${activeServer.id}/mods?filename=${encodeURIComponent(oldFilename)}`, {
+        method: "DELETE"
+      });
+
+      notify("success", `Updated ${title} to ${result.version}`);
+
+      setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, progress: 90, task: "Refreshing installed mods" } : j));
+      try {
+        await loadInstalledMods(activeServer.id);
+        await loadFiles(activeServer.id, "/mods");
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, status: "succeeded", progress: 100, task: `Updated ${title}`, dismissible: true } : j));
+      } catch (refreshErr) {
+        setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, status: "succeeded", progress: 100, task: `Updated ${title}, but failed to refresh mod list`, error: (refreshErr as Error).message, dismissible: true } : j));
+      }
+
+      window.setTimeout(() => {
+        setActiveJobs((current) => current.filter((j) => j.id !== jobId));
+      }, 4000);
+    } catch (error) {
+      const message = (error as Error).message;
+      setNotice(message);
+      notify("error", message);
+      setActiveJobs((current) => current.map((j) => j.id === jobId ? { ...j, status: "failed", task: "Update failed", error: message, dismissible: true } : j));
+    }
+  }
+
   async function updateModChannel(mod: InstalledMod, channel: ReleaseChannel) {
     if (!canManager || !activeServer || !mod.filename) return;
     if (activeServerIsDemo) {
@@ -2040,66 +2156,214 @@ export default function App() {
 
                   {modsView === "manager" && (
                     <div className="mods">
-                      <div className="modActionGrid">
-                        <button className="modRow addModRow" onClick={() => setModsView("search")} disabled={isProvisioning || !canManager || !effectiveAppState.modrinthApiConfigured}>
-                          <span className="addIcon"><AppIcon name="plus" /></span>
-                          <div>
-                            <strong>Add mod</strong>
+                      <div className="modsCardsGrid">
+                        <button
+                          type="button"
+                          className="modsCard"
+                          onClick={() => setModsView("search")}
+                          disabled={isProvisioning || !canManager || !effectiveAppState.modrinthApiConfigured}
+                        >
+                          <span className="modsCardIcon">
+                            <AppIcon name="plus" />
+                          </span>
+                          <div className="modsCardText">
+                            <strong>Add mod from Modrinth</strong>
                             <p>Search Modrinth for compatible Fabric mods.</p>
                           </div>
                         </button>
-                        <button className="modRow addModRow" onClick={() => modUploadRef.current?.click()} disabled={modsLocked}>
-                          <span className="addIcon"><AppIcon name="fileUp" /></span>
-                          <div>
+                        <button
+                          type="button"
+                          className="modsCard"
+                          onClick={() => modUploadRef.current?.click()}
+                          disabled={modsLocked}
+                        >
+                          <span className="modsCardIcon">
+                            <AppIcon name="fileUp" />
+                          </span>
+                          <div className="modsCardText">
                             <strong>Upload jar</strong>
                             <p>Add a local Fabric mod file to this server.</p>
                           </div>
                         </button>
                       </div>
-                      {installedMods.length === 0 && (
-                        <div className="emptyInline">No installed mods yet.</div>
-                      )}
-                      {installedMods.map((mod) => (
-                        <article key={mod.filename} className={`modRow ${mod.enabled ? "" : "disabled"}`}>
-                          {mod.iconUrl ? <img src={mod.iconUrl} alt="" /> : <div className="modFileIcon">JAR</div>}
-                          <div>
-                            <div className="modTitleLine">
-                              <strong>{mod.displayName}</strong>
-                              {(!mod.compatibility || !mod.compatibility.compatible || mod.compatibility.status === "unknown") && (
-                                <details className={`compatibilityBadge ${compatibilityClass(mod.compatibility)}`}>
-                                  <summary>{compatibilityLabel(mod.compatibility)}</summary>
-                                  <p>{mod.compatibility?.reason || "Compatibility could not be verified."}</p>
-                                </details>
-                              )}
-                            </div>
-                            <p>{mod.enabled ? "Enabled" : "Disabled"} - {formatBytes(mod.size)} - Modified {formatDisplayDate(mod.modifiedAt)}</p>
-                            <small>{mod.filename}</small>
-                            {mod.modrinth && (
-                              <small>Modrinth {mod.modrinth.versionNumber} - {mod.modrinth.loaders.join(", ") || "loader unknown"} - Minecraft {mod.modrinth.gameVersions.join(", ") || "version unknown"}</small>
-                            )}
-                            {mod.versionInfo && (
-                              <small className={mod.versionInfo.upToDate ? "ok" : "warn"}>
-                                {mod.versionInfo.upToDate
-                                  ? `Up-to-date: ${mod.versionInfo.currentVersion || "unknown"}`
-                                  : `${mod.versionInfo.currentVersion || "unknown"} → ${mod.versionInfo.latestVersion || "unknown"} (${mod.versionInfo.latestChannel || "unknown"})`}
-                              </small>
-                            )}
-                          </div>
-                          <div className="modActions">
-                            <button onClick={() => setInstalledModEnabled(mod, !mod.enabled)} disabled={modsLocked}>
-                              {mod.enabled ? "Disable" : "Enable"}
-                            </button>
-                            <select value={mod.preferredChannel || "release"} onChange={(event) => updateModChannel(mod, event.target.value as ReleaseChannel)} disabled={isProvisioning || !canManager}>
-                              <option value="release">Release</option>
-                              <option value="beta">Beta</option>
-                              <option value="alpha">Alpha</option>
-                            </select>
-                            <button className="dangerTextButton" onClick={() => removeInstalledMod(mod)} disabled={modsLocked}>
-                              Remove
-                            </button>
-                          </div>
-                        </article>
-                      ))}
+
+                      <div className="modsToolbarCompact">
+                        <div className="modsSearchInputCompact">
+                          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="square" strokeLinejoin="miter">
+                            <circle cx="11" cy="11" r="6" />
+                            <path d="m16 16 4 4" />
+                          </svg>
+                          <input
+                            type="text"
+                            placeholder="Search installed mods..."
+                            value={installedQuery}
+                            onChange={(e) => setInstalledQuery(e.target.value)}
+                          />
+                        </div>
+                        <select
+                          className="modsFilterDropdown"
+                          value={statusFilter}
+                          onChange={(e) => setStatusFilter(e.target.value)}
+                        >
+                          <option value="all">All statuses</option>
+                          <option value="enabled">Enabled</option>
+                          <option value="disabled">Disabled</option>
+                          <option value="update">Update available</option>
+                          <option value="warning">Incompatible / Warning</option>
+                        </select>
+                      </div>
+
+                      <div className="modsTable">
+                        <div className="modsTableHeader">
+                          <div className="modsTableCell">Mod</div>
+                          <div className="modsTableCell">Compatibility</div>
+                          <div className="modsTableCell">Installed Version</div>
+                          <div className="modsTableCell">Update Status</div>
+                          <div className="modsTableCell">Source</div>
+                          <div className="modsTableCell">Status</div>
+                          <div className="modsTableCell" style={{ justifySelf: "end" }}>Actions</div>
+                        </div>
+
+                        {filteredInstalledMods.length === 0 ? (
+                          <div className="emptyInline" style={{ border: 0 }}>No matching installed mods.</div>
+                        ) : (
+                          filteredInstalledMods.map((mod) => {
+                            const isComp = mod.compatibility?.compatible;
+                            const compStatus = mod.compatibility?.status;
+                            return (
+                              <article key={mod.filename} className={`modsTableRow ${mod.enabled ? "" : "disabled"}`}>
+                                <div className="modsTableCell mod-col">
+                                  <div className="modInfoCol">
+                                    {mod.iconUrl ? (
+                                      <img src={mod.iconUrl} alt={mod.displayName} />
+                                    ) : (
+                                      <div className="modFileIcon">JAR</div>
+                                    )}
+                                    <div className="modInfoText">
+                                      <strong>{mod.displayName}</strong>
+                                      <span className="filename">{mod.filename}</span>
+                                      {mod.description && (
+                                        <p className="description">{mod.description}</p>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div className="modsTableCell" data-label="Compatibility">
+                                  <div className="compatCol">
+                                    <span className={`compatStatus ${isComp ? "compatible" : compStatus === "unknown" ? "unknown" : "incompatible"}`}>
+                                      {isComp ? (
+                                        <>
+                                          <svg className="buttonIcon" style={{ strokeWidth: 3, width: 14, height: 14, marginRight: "4px" }} viewBox="0 0 24 24">
+                                            <path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" />
+                                          </svg>
+                                          <span>Compatible</span>
+                                        </>
+                                      ) : compStatus === "unknown" ? (
+                                        <span>Unknown</span>
+                                      ) : (
+                                        <>
+                                          <svg className="buttonIcon" style={{ strokeWidth: 3, width: 14, height: 14, marginRight: "4px" }} viewBox="0 0 24 24">
+                                            <path d="M18 6 6 18M6 6l12 12" fill="none" stroke="currentColor" />
+                                          </svg>
+                                          <span>Incompatible</span>
+                                        </>
+                                      )}
+                                    </span>
+                                    {mod.compatibility?.reason && (
+                                      <span className="compatMeta">{mod.compatibility.reason}</span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="modsTableCell" data-label="Version">
+                                  <div className="compatCol">
+                                    <span style={{ fontWeight: 800 }}>{mod.versionInfo?.currentVersion || mod.modrinth?.versionNumber || "Unknown"}</span>
+                                    {mod.modrinth?.loaders && mod.modrinth.loaders.length > 0 && (
+                                      <span className="compatMeta" style={{ textTransform: "capitalize" }}>
+                                        {mod.modrinth.loaders.join(", ")}
+                                      </span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="modsTableCell" data-label="Update">
+                                  <div className="updateCol">
+                                    {mod.versionInfo?.upToDate === true ? (
+                                      <span className="updateStatus up-to-date">
+                                        <svg className="buttonIcon" style={{ strokeWidth: 3, width: 14, height: 14, marginRight: "4px" }} viewBox="0 0 24 24">
+                                          <path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" />
+                                        </svg>
+                                        <span>Up to date</span>
+                                      </span>
+                                    ) : mod.versionInfo?.upToDate === false ? (
+                                      <>
+                                        <span className="updateStatus update-available">
+                                          <svg className="buttonIcon" style={{ strokeWidth: 3, width: 14, height: 14, marginRight: "4px" }} viewBox="0 0 24 24">
+                                            <path d="m12 5 7 7-7 7M5 12h14" fill="none" stroke="currentColor" />
+                                          </svg>
+                                          <span>Update available</span>
+                                        </span>
+                                        <span className="updateMeta">Latest: {mod.versionInfo.latestVersion}</span>
+                                      </>
+                                    ) : (
+                                      <span className="updateStatus unknown">Unknown</span>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="modsTableCell" data-label="Source">
+                                  <div className="sourceCol">
+                                    {mod.modrinth ? "Modrinth" : "Uploaded"}
+                                  </div>
+                                </div>
+
+                                <div className="modsTableCell" data-label="Status">
+                                  <label className="switch">
+                                    <input
+                                      type="checkbox"
+                                      checked={mod.enabled}
+                                      onChange={() => setInstalledModEnabled(mod, !mod.enabled)}
+                                      disabled={modsLocked}
+                                    />
+                                    <span className="slider"></span>
+                                    <span style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.05em", color: mod.enabled ? "var(--sentinel-success)" : "var(--text-soft)" }}>
+                                      {mod.enabled ? "Enabled" : "Disabled"}
+                                    </span>
+                                  </label>
+                                </div>
+
+                                <div className="modsTableCell actions" data-label="Actions">
+                                  <button className="secondaryButton" onClick={() => setDetailsMod(mod)}>Details</button>
+                                  {mod.versionInfo?.upToDate === false && (
+                                    <button
+                                      style={{
+                                        borderColor: "var(--sentinel-warning)",
+                                        color: "var(--sentinel-warning)",
+                                        background: "transparent",
+                                        marginLeft: "4px"
+                                      }}
+                                      onClick={() => updateMod(mod)}
+                                      disabled={modsLocked}
+                                    >
+                                      Update
+                                    </button>
+                                  )}
+                                  <button className="dangerTextButton" style={{ marginLeft: "4px" }} onClick={() => removeInstalledMod(mod)} disabled={modsLocked}>Remove</button>
+                                </div>
+                              </article>
+                            );
+                          })
+                        )}
+                      </div>
+
+                      <div className="modsFooterBanner">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="square" strokeLinejoin="miter">
+                          <circle cx="12" cy="12" r="10" />
+                          <path d="M12 16v-4M12 8h.01" />
+                        </svg>
+                        <span>Stop the server before adding, removing, or uploading mods. You can enable or disable mods while the server is running.</span>
+                      </div>
                     </div>
                   )}
 
@@ -2235,6 +2499,120 @@ export default function App() {
                         <div className="buttonRow">
                           <button type="button" className="secondaryButton" onClick={() => setForceInstallProjectId(null)}>Cancel</button>
                           <button type="button" className="dangerButton" onClick={() => installMod(forceInstallMod.project_id, forceInstallMod.title, true)} disabled={modsLocked || !effectiveAppState.modrinthApiConfigured}>Force install</button>
+                        </div>
+                      </section>
+                    </div>
+                  )}
+
+                  {detailsMod && (
+                    <div className="modalBackdrop" role="presentation" onClick={() => setDetailsMod(null)}>
+                      <section className="modalPanel" role="dialog" aria-modal="true" aria-labelledby="details-title" onClick={(e) => e.stopPropagation()} style={{ maxWidth: "600px", width: "100%" }}>
+                        <div className="panelHeader" style={{ borderBottom: "var(--border-strong) solid var(--border)", paddingBottom: "var(--space-3)" }}>
+                          <h2 id="details-title" style={{ fontSize: "18px" }}>Mod Details</h2>
+                          <button type="button" className="iconButton" onClick={() => setDetailsMod(null)} aria-label="Close details">
+                            <AppIcon name="x" />
+                          </button>
+                        </div>
+                        <div style={{ display: "flex", gap: "var(--space-4)", marginTop: "var(--space-4)" }}>
+                          {detailsMod.iconUrl ? (
+                            <img src={detailsMod.iconUrl} alt={detailsMod.displayName} style={{ width: "64px", height: "64px", borderRadius: "var(--radius-sm)", border: "var(--border-strong) solid var(--border)", objectFit: "cover" }} />
+                          ) : (
+                            <div className="modFileIcon" style={{ width: "64px", height: "64px", fontSize: "16px", fontWeight: "900", display: "grid", placeItems: "center", border: "var(--border-strong) solid var(--border)", borderRadius: "var(--radius-sm)", background: "var(--surface-muted)" }}>JAR</div>
+                          )}
+                          <div style={{ display: "grid", gap: "4px" }}>
+                            <strong style={{ fontSize: "16px", textTransform: "uppercase", letterSpacing: "0.04em" }}>{detailsMod.displayName}</strong>
+                            <span style={{ fontSize: "12px", color: "var(--text-soft)", fontFamily: "var(--font-mono)" }}>{detailsMod.filename}</span>
+                          </div>
+                        </div>
+                        <div style={{ marginTop: "var(--space-4)", display: "grid", gap: "var(--space-3)" }}>
+                          {detailsMod.description && (
+                            <div>
+                              <strong style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>Description</strong>
+                              <p style={{ fontSize: "13px", margin: "4px 0 0", lineHeight: "1.4" }}>{detailsMod.description}</p>
+                            </div>
+                          )}
+                          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-3)" }}>
+                            <div>
+                              <strong style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>Size</strong>
+                              <div style={{ fontSize: "13px", marginTop: "2px" }}>{formatBytes(detailsMod.size)}</div>
+                            </div>
+                            <div>
+                              <strong style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>Last Modified</strong>
+                              <div style={{ fontSize: "13px", marginTop: "2px" }}>{formatDisplayDate(detailsMod.modifiedAt)}</div>
+                            </div>
+                          </div>
+                          
+                          {detailsMod.modrinth && (
+                            <>
+                              <div style={{ borderTop: "var(--border-strong) solid var(--border)", paddingTop: "var(--space-3)" }}>
+                                <strong style={{ fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.08em" }}>Modrinth Metadata</strong>
+                              </div>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-3)" }}>
+                                <div>
+                                  <strong style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>Project ID</strong>
+                                  <div style={{ fontSize: "13px", marginTop: "2px", fontFamily: "var(--font-mono)" }}>{detailsMod.modrinth.projectId}</div>
+                                </div>
+                                <div>
+                                  <strong style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>Version ID</strong>
+                                  <div style={{ fontSize: "13px", marginTop: "2px", fontFamily: "var(--font-mono)" }}>{detailsMod.modrinth.versionId}</div>
+                                </div>
+                                <div>
+                                  <strong style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>Version Number</strong>
+                                  <div style={{ fontSize: "13px", marginTop: "2px" }}>{detailsMod.modrinth.versionNumber}</div>
+                                </div>
+                                <div>
+                                  <strong style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>Installed At</strong>
+                                  <div style={{ fontSize: "13px", marginTop: "2px" }}>{formatDisplayDate(detailsMod.modrinth.installedAt)}</div>
+                                </div>
+                              </div>
+                              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "var(--space-3)" }}>
+                                <div>
+                                  <strong style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>Supported Game Versions</strong>
+                                  <div style={{ fontSize: "13px", marginTop: "2px" }}>{detailsMod.modrinth.gameVersions.join(", ")}</div>
+                                </div>
+                                <div>
+                                  <strong style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>Supported Loaders</strong>
+                                  <div style={{ fontSize: "13px", marginTop: "2px", textTransform: "capitalize" }}>{detailsMod.modrinth.loaders.join(", ")}</div>
+                                </div>
+                              </div>
+                              {detailsMod.modrinth.hashes && Object.keys(detailsMod.modrinth.hashes).length > 0 && (
+                                <div>
+                                  <strong style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.08em", color: "var(--text-muted)" }}>File Hashes</strong>
+                                  <div style={{ fontSize: "11px", fontFamily: "var(--font-mono)", marginTop: "4px", background: "var(--surface-muted)", padding: "var(--space-2)", borderRadius: "var(--radius-sm)", border: "var(--border-strong) solid var(--border)", display: "grid", gap: "4px", wordBreak: "break-all" }}>
+                                    {Object.entries(detailsMod.modrinth.hashes).map(([algo, hash]) => (
+                                      <div key={algo}>
+                                        <span style={{ fontWeight: "800", textTransform: "uppercase" }}>{algo}:</span> {hash}
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                              <div style={{ marginTop: "var(--space-2)" }}>
+                                <a
+                                  href={`https://modrinth.com/mod/${detailsMod.modrinth.projectId}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="pill"
+                                  style={{
+                                    display: "inline-flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                    textDecoration: "none",
+                                    borderColor: "var(--accent)",
+                                    color: "var(--accent)"
+                                  }}
+                                >
+                                  <span>View on Modrinth</span>
+                                  <svg className="buttonIcon" style={{ strokeWidth: 3, width: 12, height: 12 }} viewBox="0 0 24 24">
+                                    <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6M15 3h6v6M10 14 21 3" fill="none" stroke="currentColor" />
+                                  </svg>
+                                </a>
+                              </div>
+                            </>
+                          )}
+                        </div>
+                        <div className="buttonRow" style={{ marginTop: "var(--space-5)", borderTop: "var(--border-strong) solid var(--border)", paddingTop: "var(--space-4)" }}>
+                          <button type="button" className="secondaryButton" onClick={() => setDetailsMod(null)}>Close</button>
                         </div>
                       </section>
                     </div>

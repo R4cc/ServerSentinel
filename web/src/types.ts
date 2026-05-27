@@ -179,6 +179,7 @@ export type InstalledMod = {
   size: number;
   modifiedAt: string;
   iconUrl?: string;
+  description?: string;
   preferredChannel?: ReleaseChannel;
   compatibility?: ModCompatibility;
   modrinth?: {

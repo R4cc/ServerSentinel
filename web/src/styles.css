@@ -3157,10 +3157,425 @@ details.compatibilityBadge p {
   text-transform: none;
 }
 
-.fieldHint {
-  color: var(--text-muted);
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 1.35;
-  text-transform: none;
+/* Redesigned Installed Mods Styles */
+.modsCardsGrid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: var(--space-4);
+  margin-bottom: var(--space-4);
 }
+
+.modsCard {
+  border: var(--border-strong) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  text-align: left;
+  cursor: pointer;
+  transition: all 150ms ease;
+  width: 100%;
+}
+
+.modsCard:hover:not(:disabled) {
+  background: var(--sentinel-accent-soft);
+  border-color: var(--accent);
+}
+
+.modsCardIcon {
+  width: 44px;
+  height: 44px;
+  border: var(--border-strong) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.modsCardIcon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.modsCardText {
+  display: grid;
+  gap: 2px;
+}
+
+.modsCardText strong {
+  font-size: 13px;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text);
+}
+
+.modsCardText p {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.modsToolbarCompact {
+  display: flex;
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+  align-items: center;
+}
+
+.modsSearchInputCompact {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  border: var(--border-strong) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: 0 var(--space-3);
+  height: 40px;
+  flex: 1;
+  min-width: 0;
+}
+
+.modsSearchInputCompact svg {
+  width: 16px;
+  height: 16px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.modsSearchInputCompact input {
+  border: 0;
+  background: transparent;
+  width: 100%;
+  height: 100%;
+  font-size: 13px;
+  color: var(--text);
+  padding: 0;
+}
+
+.modsSearchInputCompact input:focus {
+  outline: none;
+}
+
+.modsFilterDropdown {
+  border: var(--border-strong) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  padding: 0 var(--space-3);
+  height: 40px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text);
+  outline: none;
+  min-width: 170px;
+  cursor: pointer;
+}
+
+.modsTable {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--surface);
+  border: var(--border-strong) solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-top: var(--space-4);
+}
+
+.modsTableHeader {
+  display: grid;
+  grid-template-columns: minmax(240px, 2.5fr) minmax(130px, 1.2fr) minmax(140px, 1.2fr) minmax(150px, 1.4fr) minmax(90px, 0.8fr) minmax(110px, 1.1fr) minmax(210px, 1.8fr);
+  background: var(--surface-muted);
+  border-bottom: var(--border-strong) solid var(--border);
+  padding: var(--space-3) var(--space-4);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.modsTableRow {
+  display: grid;
+  grid-template-columns: minmax(240px, 2.5fr) minmax(130px, 1.2fr) minmax(140px, 1.2fr) minmax(150px, 1.4fr) minmax(90px, 0.8fr) minmax(110px, 1.1fr) minmax(210px, 1.8fr);
+  border-bottom: var(--border-strong) solid var(--border);
+  padding: var(--space-3) var(--space-4);
+  align-items: center;
+  background: var(--surface);
+  transition: background 150ms ease;
+}
+
+.modsTableRow:hover {
+  background: var(--sentinel-accent-soft);
+}
+
+.modsTableRow:last-child {
+  border-bottom: 0;
+}
+
+.modsTableCell {
+  min-width: 0;
+}
+
+.modsTableCell.actions {
+  justify-self: end;
+  display: flex;
+  gap: var(--space-2);
+}
+
+.modsTableCell.actions button {
+  min-height: 32px;
+  padding: 0 var(--space-3);
+  font-size: 12px;
+}
+
+.modInfoCol {
+  display: flex;
+  gap: var(--space-3);
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.modInfoCol img,
+.modInfoCol .modFileIcon {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  border: var(--border-strong) solid var(--border);
+  flex-shrink: 0;
+  object-fit: cover;
+}
+
+.modInfoText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.modInfoText strong {
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modInfoText .filename {
+  font-size: 11px;
+  font-weight: 800;
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.modInfoText .description {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 2px 0 0;
+  line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.compatCol {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.compatStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 800;
+}
+
+.compatStatus.compatible {
+  color: var(--sentinel-success);
+}
+
+.compatStatus.incompatible {
+  color: var(--sentinel-danger);
+}
+
+.compatStatus.unknown {
+  color: var(--text-muted);
+}
+
+.compatMeta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.updateCol {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 13px;
+}
+
+.updateStatus {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 800;
+}
+
+.updateStatus.up-to-date {
+  color: var(--sentinel-success);
+}
+
+.updateStatus.update-available {
+  color: var(--sentinel-warning);
+}
+
+.updateStatus.unknown {
+  color: var(--text-soft);
+}
+
+.updateMeta {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.sourceCol {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text-muted);
+}
+
+/* Switch styling */
+.switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.switch input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+  position: absolute;
+}
+
+.slider {
+  position: relative;
+  display: inline-block;
+  width: 38px;
+  height: 20px;
+  background-color: var(--surface-muted);
+  border: var(--border-strong) solid var(--border);
+  border-radius: 999px;
+  transition: all 200ms ease;
+}
+
+.slider::before {
+  content: "";
+  position: absolute;
+  height: 12px;
+  width: 12px;
+  left: 3px;
+  bottom: 3px;
+  background-color: var(--text-muted);
+  border-radius: 50%;
+  transition: all 200ms ease;
+}
+
+.switch input:checked + .slider {
+  background-color: var(--accent);
+  border-color: var(--accent);
+}
+
+.switch input:checked + .slider::before {
+  transform: translateX(18px);
+  background-color: var(--swiss-white);
+}
+
+.switch input:disabled + .slider {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.modsFooterBanner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  border: var(--border-strong) solid var(--accent);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  background: var(--sentinel-accent-soft);
+  margin-top: var(--space-4);
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.modsFooterBanner svg {
+  width: 16px;
+  height: 16px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.modsFooterBanner span {
+  line-height: 1.4;
+}
+
+/* Responsive Table Styles */
+@media (max-width: 1100px) {
+  .modsCardsGrid {
+    grid-template-columns: 1fr;
+  }
+  .modsTableHeader {
+    display: none;
+  }
+  .modsTableRow {
+    grid-template-columns: 1fr;
+    gap: var(--space-3);
+    padding: var(--space-4);
+  }
+  .modsTableCell {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .modsTableCell::before {
+    content: attr(data-label);
+    font-size: 11px;
+    font-weight: 900;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.08em;
+  }
+  .modsTableCell.mod-col {
+    display: block;
+  }
+  .modsTableCell.mod-col::before {
+    display: none;
+  }
+  .modsTableCell.actions {
+    justify-self: stretch;
+    justify-content: flex-end;
+  }
+  .compatCol, .updateCol {
+    align-items: flex-end;
+  }
+}
+
+
