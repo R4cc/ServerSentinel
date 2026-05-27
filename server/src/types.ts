@@ -41,10 +41,13 @@ export type InstalledModMetadata = {
   versionId: string;
   filename: string;
   versionNumber: string;
+  versionType?: ReleaseChannel;
   gameVersions: string[];
   loaders: string[];
+  hashes?: Record<string, string>;
   installedAt: string;
   installedWithForceIncompatible: boolean;
+  incompatibilityReason?: string;
 };
 
 export type ModCompatibilityStatus = "compatible" | "no_fabric" | "no_minecraft_version" | "incompatible" | "unknown";
@@ -53,6 +56,17 @@ export type ModCompatibility = {
   status: ModCompatibilityStatus;
   compatible: boolean;
   reason: string;
+  matchedVersionId?: string;
+  matchedVersionNumber?: string;
+  matchedVersionType?: ReleaseChannel;
+  matchedLoaders?: string[];
+  matchedGameVersions?: string[];
+  file?: {
+    filename: string;
+    url: string;
+    size?: number;
+    hashes?: Record<string, string>;
+  };
 };
 
 export type ModrinthVersion = {
@@ -62,7 +76,7 @@ export type ModrinthVersion = {
   version_type: string;
   game_versions: string[];
   loaders: string[];
-  files: Array<{ url: string; filename: string; primary: boolean }>;
+  files: Array<{ url: string; filename: string; primary: boolean; size?: number; hashes?: Record<string, string> }>;
 };
 
 export type ModrinthProject = {

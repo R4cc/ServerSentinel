@@ -149,6 +149,17 @@ export type ModCompatibility = {
   status: "compatible" | "no_fabric" | "no_minecraft_version" | "incompatible" | "unknown";
   compatible: boolean;
   reason: string;
+  matchedVersionId?: string;
+  matchedVersionNumber?: string;
+  matchedVersionType?: ReleaseChannel;
+  matchedLoaders?: string[];
+  matchedGameVersions?: string[];
+  file?: {
+    filename: string;
+    url: string;
+    size?: number;
+    hashes?: Record<string, string>;
+  };
 };
 
 export type ModrinthHit = {
@@ -175,10 +186,13 @@ export type InstalledMod = {
     versionId: string;
     filename: string;
     versionNumber: string;
+    versionType?: ReleaseChannel;
     gameVersions: string[];
     loaders: string[];
+    hashes?: Record<string, string>;
     installedAt: string;
     installedWithForceIncompatible: boolean;
+    incompatibilityReason?: string;
   };
   versionInfo?: {
     currentVersion?: string;

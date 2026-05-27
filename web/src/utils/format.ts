@@ -23,6 +23,7 @@ export function compatibilityLabel(compatibility?: ModCompatibility) {
 
 export function compatibilityClass(compatibility?: ModCompatibility) {
   if (compatibility?.compatible) return "ok";
+  if (!compatibility || compatibility.status === "unknown") return "unknown";
   return "danger";
 }
 

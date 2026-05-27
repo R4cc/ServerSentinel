@@ -14,6 +14,13 @@ import { totalmem } from "node:os";
 import { config, legacyDefaultServersDockerVolume, maxServerPort, minServerPort } from "./config.js";
 import { dockerAvailable, dockerBufferRequest, dockerJsonBufferRequest, dockerJsonRequest, dockerRequest } from "./docker/dockerClient.js";
 import { fabricMeta, latestFabricVersion } from "./fabric/fabricClient.js";
+import {
+  allowedForChannel,
+  normalizeReleaseChannel,
+  resolveModrinthProjectCompatibility,
+  unknownCompatibility,
+  versionChannel
+} from "./modrinth/compatibility.js";
 import { modrinthFetch } from "./modrinth/modrinthClient.js";
 import { registerStaticFrontend } from "./staticFrontend.js";
 import { modrinthApiKey, readSettings, writeSettings } from "./storage/settingsStore.js";
@@ -2064,10 +2071,6 @@ app.delete<{ Params: { id: string }; Querystring: { path?: string; recursive?: s
 
 
 
-function normalizeReleaseChannel(channel?: string): ReleaseChannel {
-  return channel === "alpha" || channel === "beta" ? channel : "release";
-}
-
 async function readModPreferences(server: ManagedServer): Promise<Record<string, ModPreference>> {
   let path: string;
   try {
@@ -2089,52 +2092,6 @@ async function writeModPreferences(server: ManagedServer, data: Record<string, M
   await writeFile(path, `${JSON.stringify(data, null, 2)}\n`, "utf8");
 }
 
-function versionChannel(versionType?: string): ReleaseChannel {
-  return normalizeReleaseChannel(versionType);
-}
-
-const channelRank: Record<ReleaseChannel, number> = { release: 0, beta: 1, alpha: 2 };
-
-function allowedForChannel(version: ModrinthVersion, selectedChannel: ReleaseChannel) {
-  return channelRank[versionChannel(version.version_type)] <= channelRank[selectedChannel];
-}
-
-function modrinthJarFile(version?: ModrinthVersion) {
-  return version?.files.find((candidate) => candidate.primary && candidate.filename.endsWith(".jar"))
-    ?? version?.files.find((candidate) => candidate.filename.endsWith(".jar"));
-}
-
-function analyzeModrinthCompatibility(server: ManagedServer, versions: ModrinthVersion[], selectedChannel: ReleaseChannel): ModCompatibility {
-  const minecraftVersion = server.minecraftVersion || "unknown";
-  const eligibleVersions = versions.filter((version) => allowedForChannel(version, selectedChannel) && modrinthJarFile(version));
-  const fabricVersions = eligibleVersions.filter((version) => version.loaders.includes("fabric"));
-  const minecraftVersions = eligibleVersions.filter((version) => version.game_versions.includes(minecraftVersion));
-  const compatibleVersions = eligibleVersions.filter((version) => version.loaders.includes("fabric") && version.game_versions.includes(minecraftVersion));
-
-  if (compatibleVersions.length > 0) {
-    return { status: "compatible", compatible: true, reason: `Compatible with Fabric and Minecraft ${minecraftVersion}` };
-  }
-  if (fabricVersions.length === 0) {
-    return { status: "no_fabric", compatible: false, reason: "No Fabric version available" };
-  }
-  if (minecraftVersions.length === 0) {
-    return { status: "no_minecraft_version", compatible: false, reason: `Not available for Minecraft ${minecraftVersion}` };
-  }
-  return { status: "incompatible", compatible: false, reason: `No compatible Fabric build for Minecraft ${minecraftVersion}` };
-}
-
-function selectModrinthVersion(server: ManagedServer, versions: ModrinthVersion[], selectedChannel: ReleaseChannel, forceIncompatible: boolean) {
-  const minecraftVersion = server.minecraftVersion || "";
-  const eligibleVersions = versions.filter((version) => allowedForChannel(version, selectedChannel) && modrinthJarFile(version));
-  const compatible = eligibleVersions.find((version) => version.loaders.includes("fabric") && version.game_versions.includes(minecraftVersion));
-  if (compatible || !forceIncompatible) {
-    return compatible;
-  }
-  return eligibleVersions.find((version) => version.loaders.includes("fabric"))
-    ?? eligibleVersions.find((version) => version.game_versions.includes(minecraftVersion))
-    ?? eligibleVersions[0];
-}
-
 function installedModCompatibility(server: ManagedServer, metadata?: InstalledModMetadata): ModCompatibility {
   if (!metadata) {
     return { status: "unknown", compatible: false, reason: "Compatibility could not be verified." };
@@ -2153,7 +2110,9 @@ function installedModCompatibility(server: ManagedServer, metadata?: InstalledMo
     return {
       status: "incompatible",
       compatible: false,
-      reason: "This mod was force installed even though ServerSentinel could not confirm compatibility."
+      reason: metadata.incompatibilityReason
+        ? `This mod was force installed: ${metadata.incompatibilityReason}`
+        : "This mod was force installed even though ServerSentinel could not confirm compatibility."
     };
   }
   return { status: "compatible", compatible: true, reason: "Compatibility verified for this server." };
@@ -2169,9 +2128,8 @@ async function lookupModrinthUpdate(server: ManagedServer, modPath: string, pref
   versionsUrl.searchParams.set("loaders", JSON.stringify(["fabric"]));
   versionsUrl.searchParams.set("game_versions", JSON.stringify([server.minecraftVersion]));
   const versionsRes = await modrinthFetch(versionsUrl.toString());
-  const versions = await versionsRes.json() as Array<{ version_number: string; version_type: string }>;
-  const channelRank: Record<ReleaseChannel, number> = { release: 0, beta: 1, alpha: 2 };
-  const target = versions.find((v) => channelRank[versionChannel(v.version_type)] <= channelRank[preferredChannel]);
+  const versions = await versionsRes.json() as ModrinthVersion[];
+  const target = versions.find((version) => allowedForChannel(version, preferredChannel));
   return {
     projectId: current.project_id,
     currentVersion: current.version_number,
@@ -2332,6 +2290,7 @@ app.get<{ Querystring: { query?: string; serverId?: string; channel?: ReleaseCha
   if (!server.minecraftVersion || !server.loaderVersion) {
     throw new Error("Minecraft and Fabric loader versions are required before searching compatible mods");
   }
+  const minecraftVersion = server.minecraftVersion;
   const selectedChannel = normalizeReleaseChannel(request.query.channel);
 
   const url = new URL("https://api.modrinth.com/v2/search");
@@ -2345,25 +2304,19 @@ app.get<{ Querystring: { query?: string; serverId?: string; channel?: ReleaseCha
     if (!projectId) {
       return {
         ...hit,
-        compatibility: { status: "unknown", compatible: false, reason: "Compatibility could not be verified." } satisfies ModCompatibility
+        compatibility: unknownCompatibility()
       };
     }
-    try {
-      const versionsUrl = new URL(`https://api.modrinth.com/v2/project/${encodeURIComponent(projectId)}/version`);
-      const versionsResponse = await modrinthFetch(versionsUrl.toString());
-      const versions = await versionsResponse.json() as ModrinthVersion[];
-      return {
-        ...hit,
-        project_id: projectId,
-        compatibility: analyzeModrinthCompatibility(server, versions, selectedChannel)
-      };
-    } catch {
-      return {
-        ...hit,
-        project_id: projectId,
-        compatibility: { status: "unknown", compatible: false, reason: "Compatibility could not be verified." } satisfies ModCompatibility
-      };
-    }
+    return {
+      ...hit,
+      project_id: projectId,
+      compatibility: await resolveModrinthProjectCompatibility({
+        projectId,
+        minecraftVersion,
+        loader: "fabric",
+        channel: selectedChannel
+      })
+    };
   }));
   return { ...body, hits, status: hits.length > 0 ? "projects_found" : "no_project_found" };
 });
@@ -2376,20 +2329,23 @@ app.post<{ Body: { serverId?: string; projectId?: string; channel?: ReleaseChann
   if (!projectId || !server.minecraftVersion || !server.loaderVersion) {
     throw new Error("projectId, Minecraft version, and Fabric loader version are required for compatible Fabric installs");
   }
+  const minecraftVersion = server.minecraftVersion;
 
-  const versionsUrl = new URL(`https://api.modrinth.com/v2/project/${encodeURIComponent(projectId)}/version`);
   const projectUrl = new URL(`https://api.modrinth.com/v2/project/${encodeURIComponent(projectId)}`);
-  const [versionsResponse, projectResponse] = await Promise.all([modrinthFetch(versionsUrl.toString()), modrinthFetch(projectUrl.toString())]);
+  const projectResponse = await modrinthFetch(projectUrl.toString());
   const project = await projectResponse.json() as { icon_url?: string | null };
-  const versions = await versionsResponse.json() as ModrinthVersion[];
   const selectedChannel = normalizeReleaseChannel(request.body.channel);
-  const compatibility = analyzeModrinthCompatibility(server, versions, selectedChannel);
+  const compatibility = await resolveModrinthProjectCompatibility({
+    projectId,
+    minecraftVersion,
+    loader: "fabric",
+    channel: selectedChannel
+  });
   if (!compatibility.compatible && !request.body.forceIncompatible) {
     throw new Error(`${compatibility.reason}. Set forceIncompatible to true to install anyway.`);
   }
-  const version = selectModrinthVersion(server, versions, selectedChannel, Boolean(request.body.forceIncompatible));
-  const file = modrinthJarFile(version);
-  if (!version || !file) {
+  const file = compatibility.file;
+  if (!compatibility.matchedVersionId || !compatibility.matchedVersionNumber || !file) {
     throw new Error("No installable .jar file was found for that project");
   }
   if (!file.url.startsWith("https://")) {
@@ -2414,13 +2370,16 @@ app.post<{ Body: { serverId?: string; projectId?: string; channel?: ReleaseChann
     channel: selectedChannel,
     modrinth: {
       projectId,
-      versionId: version.id,
+      versionId: compatibility.matchedVersionId,
       filename,
-      versionNumber: version.version_number,
-      gameVersions: version.game_versions,
-      loaders: version.loaders,
+      versionNumber: compatibility.matchedVersionNumber,
+      versionType: compatibility.matchedVersionType,
+      gameVersions: compatibility.matchedGameVersions ?? [],
+      loaders: compatibility.matchedLoaders ?? [],
+      hashes: file.hashes,
       installedAt: new Date().toISOString(),
-      installedWithForceIncompatible: !compatibility.compatible
+      installedWithForceIncompatible: !compatibility.compatible,
+      incompatibilityReason: compatibility.compatible ? undefined : compatibility.reason
     }
   };
   await writeModPreferences(server, prefs);
@@ -2428,10 +2387,10 @@ app.post<{ Body: { serverId?: string; projectId?: string; channel?: ReleaseChann
   return {
     ok: true,
     projectId,
-    version: version.version_number,
+    version: compatibility.matchedVersionNumber,
     filename,
     path: toPublicPath(server, destination),
-    channel: versionChannel(version.version_type),
+    channel: compatibility.matchedVersionType ?? "release",
     compatibility
   };
 });
