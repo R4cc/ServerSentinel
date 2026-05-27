@@ -2666,7 +2666,7 @@ export default function App() {
             )}
 
             {activePage === "properties" && (
-              <section className="settingsPage">
+              <section className="tabPage settingsPage">
                 <section className="panel">
                   <h2>Server Properties</h2>
                   <ServerEditForm

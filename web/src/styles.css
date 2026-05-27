@@ -1094,8 +1094,9 @@ button .buttonIcon {
   min-height: 34px;
   padding: 0;
   border-radius: var(--radius-sm);
-  display: inline-grid;
-  place-items: center;
+  display: flex;
+  justify-content: center;
+  align-items: center;
   background: var(--surface);
   color: var(--text);
 }
@@ -1105,6 +1106,9 @@ button .buttonIcon {
   min-width: 34px;
   min-height: 34px;
   padding: 0;
+  display: flex;
+  justify-content: center;
+  align-items: center;
 }
 
 .settingsNavLabel {
@@ -2868,7 +2872,7 @@ details.compatibilityBadge p {
   }
 
   .sidebarCollapsed .accountLogoutButton {
-    display: inline-grid;
+    display: flex;
   }
 
   .workspaceHeader,
