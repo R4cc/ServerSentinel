@@ -118,7 +118,6 @@ export default function App() {
   const [installedMods, setInstalledMods] = useState<InstalledMod[]>([]);
   const [modsView, setModsView] = useState<"manager" | "search">("manager");
   const [installedQuery, setInstalledQuery] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
   const [detailsMod, setDetailsMod] = useState<InstalledMod | null>(null);
   const [resourceSamples, setResourceSamples] = useState<ResourceSample[]>([]);
   const [overviewData, setOverviewData] = useState<ServerOverviewData>({ events: [], activity: {} });
@@ -199,17 +198,11 @@ export default function App() {
 
   const filteredInstalledMods = useMemo(() => {
     return installedMods.filter(mod => {
-      const matchesSearch = mod.displayName.toLowerCase().includes(installedQuery.toLowerCase()) ||
-                            mod.filename.toLowerCase().includes(installedQuery.toLowerCase()) ||
-                            (mod.description || "").toLowerCase().includes(installedQuery.toLowerCase());
-      if (!matchesSearch) return false;
-      if (statusFilter === "enabled") return mod.enabled;
-      if (statusFilter === "disabled") return !mod.enabled;
-      if (statusFilter === "update") return mod.versionInfo?.upToDate === false;
-      if (statusFilter === "warning") return mod.compatibility?.compatible === false;
-      return true;
+      return mod.displayName.toLowerCase().includes(installedQuery.toLowerCase()) ||
+             mod.filename.toLowerCase().includes(installedQuery.toLowerCase()) ||
+             (mod.description || "").toLowerCase().includes(installedQuery.toLowerCase());
     });
-  }, [installedMods, installedQuery, statusFilter]);
+  }, [installedMods, installedQuery]);
 
   const filteredModSearchResults = useMemo(() => {
     if (modCompatibilityFilter === "compatible") {
@@ -2131,13 +2124,26 @@ export default function App() {
                 <section className="panel modsPanel">
                   <div className="panelHeader modsPanelHeader">
                     <div>
-                      <h2>Mods</h2>
+                      <h2>{modsView === "search" ? "Search Modrinth Mods" : "Installed Mods"}</h2>
                     </div>
-                    <div className="modsContext">
+                    <div className="modsContext" style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+                      {modsView === "search" && (
+                        <button
+                          type="button"
+                          className="secondaryButton"
+                          style={{ minHeight: "32px", padding: "0 var(--space-3)", fontSize: "11px" }}
+                          onClick={() => {
+                            setQuery("");
+                            setModSearchResults([]);
+                            setModsView("manager");
+                          }}
+                        >
+                          Back to Installed Mods
+                        </button>
+                      )}
                       <span className={modsLocked ? "warn" : "ok"}>
                         {!activeStatus ? "Checking server state" : activeStatus.docker.running ? "Stop server to edit mods" : "Mod changes enabled"}
                       </span>
-                      <small>{activeModContext}</small>
                     </div>
                   </div>
                   {!effectiveAppState.modrinthApiConfigured && (
@@ -2146,13 +2152,7 @@ export default function App() {
                       <span>Installed mod management still works. Add a key in Settings to search and install new mods.</span>
                     </section>
                   )}
-                  <div className="modsToolbar">
-                    <div className="segmentedControl">
-                      <button className={modsView === "manager" ? "active" : ""} onClick={() => { setForceInstallProjectId(null); setModsView("manager"); }}>Installed</button>
-                      <button className={modsView === "search" ? "active" : ""} onClick={() => { setForceInstallProjectId(null); setModsView("search"); }} disabled={!canManager}>Search</button>
-                    </div>
-                    <input ref={modUploadRef} className="hiddenInput" type="file" accept=".jar" onChange={uploadMod} />
-                  </div>
+                  <input ref={modUploadRef} className="hiddenInput" type="file" accept=".jar" onChange={uploadMod} style={{ display: "none" }} />
 
                   {modsView === "manager" && (
                     <div className="mods">
@@ -2188,7 +2188,7 @@ export default function App() {
                       </div>
 
                       <div className="modsToolbarCompact">
-                        <div className="modsSearchInputCompact">
+                        <div className="modsSearchInputCompact" style={{ maxWidth: "480px" }}>
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="square" strokeLinejoin="miter">
                             <circle cx="11" cy="11" r="6" />
                             <path d="m16 16 4 4" />
@@ -2200,17 +2200,6 @@ export default function App() {
                             onChange={(e) => setInstalledQuery(e.target.value)}
                           />
                         </div>
-                        <select
-                          className="modsFilterDropdown"
-                          value={statusFilter}
-                          onChange={(e) => setStatusFilter(e.target.value)}
-                        >
-                          <option value="all">All statuses</option>
-                          <option value="enabled">Enabled</option>
-                          <option value="disabled">Disabled</option>
-                          <option value="update">Update available</option>
-                          <option value="warning">Incompatible / Warning</option>
-                        </select>
                       </div>
 
                       <div className="modsTable">
