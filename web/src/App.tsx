@@ -136,6 +136,7 @@ export default function App() {
   const [consoleStreamVersion, setConsoleStreamVersion] = useState(0);
   const [runtimeAction, setRuntimeAction] = useState<"start" | "stop" | "restart" | null>(null);
   const [activePage, setActivePage] = useState<ActivePage>("overview");
+  const [overflowOpen, setOverflowOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [themePreference, setThemePreference] = useState<ThemePreference>(() => readThemePreference());
   const [demoMode, setDemoMode] = useState(() => readDemoMode());
@@ -260,6 +261,13 @@ export default function App() {
   useEffect(() => {
     activeServerIdRef.current = activeServer?.id ?? "";
   }, [activeServer?.id]);
+
+  useEffect(() => {
+    if (!overflowOpen) return;
+    const handleOutsideClick = () => setOverflowOpen(false);
+    window.addEventListener("click", handleOutsideClick);
+    return () => window.removeEventListener("click", handleOutsideClick);
+  }, [overflowOpen]);
 
   useEffect(() => {
     if (!authSession || (!authSession.authenticated && !demoMode)) return;
@@ -2019,14 +2027,27 @@ export default function App() {
         {isServerWorkspacePage(activePage) && activeServer && (
           <>
             <div className="activeServerStrip">
-              <div>
-                <strong>{activeServer.displayName}</strong>
-                <span>{activeMinecraftVersion === "Unknown" ? "Version unknown" : activeMinecraftVersion} · Fabric</span>
+              <div className="serverStripLeft">
+                <div className="serverStripIcon">
+                  <svg className="server-icon-cube" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                    <line x1="12" y1="22.08" x2="12" y2="12" />
+                  </svg>
+                </div>
+                <div className="serverStripInfo">
+                  <div className="serverStripTitleRow">
+                    <strong>{activeServer.displayName}</strong>
+                    <span className={`runtimeBadge ${runtimeTone(activeStatus, effectiveAppState.dockerSocketMounted)}`}>
+                      {runtimeLabel(activeStatus, effectiveAppState.dockerSocketMounted)}
+                    </span>
+                  </div>
+                  <small className="serverStripMeta">
+                    ID: {activeServer.id} • Fabric {activeMinecraftVersion === "Unknown" ? "" : activeMinecraftVersion}
+                  </small>
+                </div>
               </div>
-              <div className="activeServerRuntime">
-                <span className={`runtimeBadge ${runtimeTone(activeStatus, effectiveAppState.dockerSocketMounted)}`}>
-                  {runtimeLabel(activeStatus, effectiveAppState.dockerSocketMounted)}
-                </span>
+              <div className="serverStripRight">
                 <RuntimeControls
                   status={activeStatus}
                   controlAvailableFallback={effectiveAppState.dockerSocketMounted && activeServer.hasDockerContainer}
@@ -2034,6 +2055,60 @@ export default function App() {
                   busyAction={runtimeAction}
                   onAction={runContainerAction}
                 />
+                <button
+                  type="button"
+                  className={`quickActionButton consoleLink ${activePage === "console" ? "active" : ""}`}
+                  onClick={() => setActivePage("console")}
+                  title="Open Console"
+                >
+                  <svg className="buttonIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <polyline points="4 17 10 11 4 5" />
+                    <line x1="12" y1="19" x2="20" y2="19" />
+                  </svg>
+                  <span>Console</span>
+                </button>
+                <div className="overflowMenuContainer">
+                  <button
+                    type="button"
+                    className="iconButton overflowButton"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setOverflowOpen((prev) => !prev);
+                    }}
+                    title="More actions"
+                    aria-label="More actions"
+                  >
+                    <svg className="buttonIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" aria-hidden="true">
+                      <circle cx="12" cy="5" r="1.5" fill="currentColor" />
+                      <circle cx="12" cy="12" r="1.5" fill="currentColor" />
+                      <circle cx="12" cy="19" r="1.5" fill="currentColor" />
+                    </svg>
+                  </button>
+                  {overflowOpen && (
+                    <div className="overflowDropdown" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          refreshStatus();
+                          setOverflowOpen(false);
+                        }}
+                        disabled={isProvisioning}
+                      >
+                        Refresh Status
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          downloadConsoleLogs();
+                          setOverflowOpen(false);
+                        }}
+                        disabled={logs.length === 0}
+                      >
+                        Download Log
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -2070,7 +2145,14 @@ export default function App() {
                       <button type="button" onClick={downloadConsoleLogs} disabled={logs.length === 0}>
                         Download log
                       </button>
-                      <span className="muted">{activeStatus?.commandInputAvailable ? "Command input enabled" : activeStatus?.commandInputMessage}</span>
+                      <span className="muted">
+                        {activeStatus?.commandInputAvailable
+                          ? "Command input enabled"
+                          : activeStatus?.commandInputMessage === "Start the runtime container before sending console commands" ||
+                            activeStatus?.commandInputMessage === "Start the demo server to enable simulated console input."
+                          ? ""
+                          : activeStatus?.commandInputMessage}
+                      </span>
                     </div>
                   </div>
                   <div className="terminal">
@@ -2094,7 +2176,15 @@ export default function App() {
                           onKeyDown={handleCommandKeyDown}
                           onFocus={() => setCommandInputFocused(true)}
                           onBlur={() => window.setTimeout(() => setCommandInputFocused(false), 120)}
-                          placeholder={activeStatus?.commandInputAvailable ? "Enter command" : "Console input unavailable"}
+                          placeholder={
+                            activeStatus?.commandInputAvailable
+                              ? "Enter command"
+                              : activeStatus?.commandInputMessage === "Start the runtime container before sending console commands"
+                              ? "Start the runtime container before sending console commands"
+                              : activeStatus?.commandInputMessage === "Start the demo server to enable simulated console input."
+                              ? "Start the demo server to enable simulated console input."
+                              : "Console input unavailable"
+                          }
                           disabled={isProvisioning || !canExpanded || !activeStatus?.commandInputAvailable}
                           spellCheck={false}
                           autoComplete="off"
@@ -2139,7 +2229,7 @@ export default function App() {
                     {listing.entries.map((entry) => (
                       <article key={entry.path} className="fileRow">
                         <button
-                          className="fileOpenButton"
+                          className={`fileOpenButton ${entry.path === selectedPath ? "active" : ""}`}
                           onClick={() => entry.type === "directory" ? loadFiles(activeServer.id, entry.path) : openFile(entry.path)}
                           disabled={isProvisioning || dockerOperationalLock || (entry.type === "file" && !isEditableFile(entry))}
                         >
@@ -2378,19 +2468,14 @@ export default function App() {
                                   <button className="secondaryButton" onClick={() => setDetailsMod(mod)}>Details</button>
                                   {mod.versionInfo?.upToDate === false && (
                                     <button
-                                      style={{
-                                        borderColor: "var(--sentinel-warning)",
-                                        color: "var(--sentinel-warning)",
-                                        background: "transparent",
-                                        marginLeft: "4px"
-                                      }}
+                                      className="warningTextButton"
                                       onClick={() => updateMod(mod)}
                                       disabled={modsLocked}
                                     >
                                       Update
                                     </button>
                                   )}
-                                  <button className="dangerTextButton" style={{ marginLeft: "4px" }} onClick={() => removeInstalledMod(mod)} disabled={modsLocked}>Remove</button>
+                                  <button className="dangerTextButton" onClick={() => removeInstalledMod(mod)} disabled={modsLocked}>Remove</button>
                                 </div>
                               </article>
                             );

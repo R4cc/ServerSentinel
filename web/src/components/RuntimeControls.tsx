@@ -2,12 +2,25 @@ import type { ServerStatus } from '../types';
 
 export function ControlIcon({ action }: { action: "start" | "stop" | "restart" }) {
   if (action === "start") {
-    return <span className="controlGlyph play" aria-hidden="true" />;
+    return (
+      <svg className="buttonIcon controlGlyphSVG" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M8 5v14l11-7z" />
+      </svg>
+    );
   }
   if (action === "stop") {
-    return <span className="controlGlyph stop" aria-hidden="true" />;
+    return (
+      <svg className="buttonIcon controlGlyphSVG" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+        <path d="M6 6h12v12H6z" />
+      </svg>
+    );
   }
-  return <span className="controlGlyph restart" aria-hidden="true" />;
+  return (
+    <svg className="buttonIcon controlGlyphSVG" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21 2v6h-6" />
+      <path d="M21 13a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" />
+    </svg>
+  );
 }
 
 export function RuntimeControls({

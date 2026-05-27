@@ -126,6 +126,26 @@ textarea {
   background: var(--surface);
   color: var(--text);
   padding: 10px 12px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+input:not([type="checkbox"]):not([type="radio"]),
+select {
+  height: 44px;
+}
+
+select {
+  appearance: none;
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
+  background-repeat: no-repeat;
+  background-position: right 12px center;
+  background-size: 14px;
+  padding-right: 36px !important;
+}
+
+.themeDark select {
+  background-image: url("data:image/svg+xml;charset=UTF-8,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3e%3cpolyline points='6 9 12 15 18 9'%3e%3c/polyline%3e%3c/svg%3e");
 }
 
 input:focus,
@@ -321,9 +341,20 @@ code {
 .iconButton {
   width: 44px;
   min-width: 44px;
+  height: 44px;
   padding: 0;
   display: inline-grid;
   place-items: center;
+  background: var(--surface);
+  color: var(--text);
+  border: var(--border-strong) solid var(--border);
+}
+
+.iconButton:hover:not(:disabled) {
+  background: var(--text);
+  color: var(--surface);
+  border-color: var(--text);
+  transform: translateY(-1px);
 }
 
 .buttonIcon {
@@ -512,32 +543,188 @@ button .buttonIcon {
 .activeServerStrip {
   padding: var(--space-4);
   margin-bottom: var(--space-4);
-  background:
-    linear-gradient(90deg, var(--accent) 0 8px, transparent 8px),
-    var(--surface-muted);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: var(--space-4);
+  background: var(--surface-raised);
+  display: flex;
+  justify-content: space-between;
   align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-4);
 }
 
-.activeServerStrip > div {
+.serverStripLeft {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
   min-width: 0;
+  flex: 1;
+}
+
+.serverStripIcon {
+  width: 48px;
+  height: 48px;
+  min-width: 48px;
+  border: var(--border-strong) solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
   display: grid;
+  place-items: center;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+
+.server-icon-cube {
+  width: 24px;
+  height: 24px;
+}
+
+.serverStripInfo {
+  display: flex;
+  flex-direction: column;
   gap: var(--space-1);
+  min-width: 0;
+}
+
+.serverStripTitleRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
 }
 
 .activeServerStrip strong {
   font-size: 20px;
   font-weight: 900;
-  text-transform: uppercase;
+  text-transform: none;
   letter-spacing: -0.02em;
-}
-
-.activeServerStrip span {
+  color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.runtimeBadge {
+  border: var(--border-strong) solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  color: var(--text);
+  background: var(--surface);
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+
+.serverStripMeta {
+  font-size: 12px;
+  color: var(--text-soft);
+  font-weight: 600;
+}
+
+.serverStripRight {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+/* Quick action Console button */
+.quickActionButton {
+  min-height: 44px;
+  height: 44px;
+  border: var(--border-strong) solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  padding: 0 var(--space-4);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  border-radius: 999px;
+  transition: all 150ms ease;
+}
+
+.quickActionButton:hover:not(:disabled) {
+  background: var(--text);
+  color: var(--surface);
+}
+
+.quickActionButton.active {
+  background: var(--text);
+  color: var(--surface);
+  border-color: var(--border);
+}
+
+/* Overflow Menu Container and Dropdown */
+.overflowMenuContainer {
+  position: relative;
+}
+
+.overflowButton {
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--text);
+  border: var(--border-strong) solid var(--border);
+  display: grid;
+  place-items: center;
+}
+
+.overflowButton:hover {
+  background: var(--text);
+  color: var(--surface);
+}
+
+.overflowDropdown {
+  position: absolute;
+  top: calc(100% + var(--space-2));
+  right: 0;
+  background: var(--surface-raised);
+  border: var(--border-strong) solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.16);
+  display: flex;
+  flex-direction: column;
+  min-width: 180px;
+  z-index: 100;
+  padding: var(--space-2);
+}
+
+.overflowDropdown button {
+  width: 100%;
+  text-align: left;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  padding: var(--space-2) var(--space-3);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  cursor: pointer;
+  min-height: 38px;
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+}
+
+.overflowDropdown button:hover:not(:disabled) {
+  background: var(--text);
+  color: var(--surface);
+  transform: none;
+}
+
+.overflowDropdown button:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
 }
 
 .activeServerRuntime {
@@ -749,9 +936,12 @@ button .buttonIcon {
 }
 
 .pill.stopped,
-.runtimeBadge.stopped,
-.warn {
+.runtimeBadge.stopped {
   color: var(--accent);
+}
+
+.warn {
+  color: var(--sentinel-warning);
 }
 
 .runtimeBadge.running {
@@ -907,6 +1097,8 @@ button .buttonIcon {
 
 .provisioningToast.failed {
   border-color: var(--sentinel-danger);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--sentinel-danger) 12%, var(--surface-raised)), var(--surface-raised));
 }
 
 .provisioningToast.failed strong,
@@ -921,6 +1113,8 @@ button .buttonIcon {
 
 .provisioningToast.succeeded {
   border-color: var(--sentinel-success);
+  background:
+    linear-gradient(90deg, color-mix(in srgb, var(--sentinel-success) 12%, var(--surface-raised)), var(--surface-raised));
 }
 
 .provisioningToast.succeeded strong,
@@ -934,20 +1128,43 @@ button .buttonIcon {
 }
 
 .toastDismissButton {
-  width: 30px;
-  min-width: 30px;
-  height: 30px;
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px;
   padding: 0;
-  border-radius: 999px;
+  border: 0;
+  background: transparent;
+  color: var(--text-soft);
+  display: grid;
+  place-items: center;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  cursor: pointer;
   line-height: 1;
 }
 
-.toast.success {
-  border-color: var(--border);
+.toastDismissButton:hover {
+  background: var(--surface-muted);
   color: var(--text);
 }
 
+.toast.success {
+  border-color: var(--sentinel-success);
+  color: var(--sentinel-success);
+}
+
 .toast.error {
+  border-color: var(--sentinel-danger);
+  color: var(--sentinel-danger);
+}
+
+.toast.warning {
+  border-color: var(--sentinel-warning);
+  color: var(--sentinel-warning);
+}
+
+.toast.info {
   border-color: var(--accent);
   color: var(--accent);
 }
@@ -1359,7 +1576,7 @@ button .buttonIcon {
 }
 
 .dangerPanel {
-  border-color: var(--accent);
+  border-color: var(--sentinel-danger);
   background:
     repeating-linear-gradient(45deg, rgb(255 48 0 / 0.08) 0 1px, transparent 1px 10px),
     var(--surface);
@@ -1367,7 +1584,7 @@ button .buttonIcon {
 
 .dangerPanel h2,
 .dangerCheck {
-  color: var(--accent);
+  color: var(--sentinel-danger);
 }
 
 .dangerPanel p {
@@ -1375,9 +1592,9 @@ button .buttonIcon {
 }
 
 .dangerButton {
-  border-color: var(--accent);
+  border-color: var(--sentinel-danger);
   border-radius: var(--radius-sm);
-  background: var(--accent);
+  background: var(--sentinel-danger);
   color: var(--swiss-white);
 }
 
@@ -2181,6 +2398,18 @@ button .buttonIcon {
   color: var(--text);
 }
 
+.fileOpenButton.active {
+  background: var(--text);
+  color: var(--surface);
+  border-color: var(--text);
+}
+
+.fileOpenButton.active:hover {
+  background: var(--accent);
+  color: var(--swiss-white);
+  border-color: var(--accent);
+}
+
 .fileTypeIcon {
   width: 34px;
   height: 34px;
@@ -2633,6 +2862,19 @@ details.compatibilityBadge p {
 .dangerTextButton:hover:not(:disabled) {
   background: var(--sentinel-danger);
   border-color: var(--sentinel-danger);
+  color: var(--swiss-white);
+}
+
+.warningTextButton {
+  border-color: var(--sentinel-warning);
+  color: var(--sentinel-warning);
+  background: var(--surface);
+}
+
+.warningTextButton:hover:not(:disabled) {
+  background: var(--sentinel-warning);
+  border-color: var(--sentinel-warning);
+  color: var(--swiss-white);
 }
 
 .emptyInline {

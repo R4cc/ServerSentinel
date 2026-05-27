@@ -89,13 +89,13 @@ export function UserManagement({
         <tbody>
           {users.map((user) => (
             <tr key={user.id}>
-              <td>
+              <td data-label="User">
                 <div className="userNameCell">
                   <strong>{user.username}</strong>
                   {user.id === currentUserId && <span className="currentUserMark">Current user</span>}
                 </div>
               </td>
-              <td>
+              <td data-label="Role">
                 <div className="roleCell">
                   <span className={`roleBadge ${user.role}`}>{roleMeta[user.role].label}</span>
                   <span className="roleInfoWrap">
@@ -113,7 +113,7 @@ export function UserManagement({
                   </span>
                 </div>
               </td>
-              <td>
+              <td data-label="Actions">
                 <div className="userActions">
                   <button type="button" className="secondaryButton" onClick={() => onOpenEdit(user)}>Edit</button>
                   <button
