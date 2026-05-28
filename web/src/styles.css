@@ -34,6 +34,10 @@
   --space-5: 24px;
   --space-6: 32px;
   --space-7: 48px;
+  --sidebar-width: 280px;
+  --sidebar-collapsed-width: 76px;
+  --sidebar-rail-size: 44px;
+  --sidebar-ease: 220ms cubic-bezier(0.4, 0, 0.2, 1);
   font-family: var(--font-sans);
   background: var(--surface);
   color: var(--text);
@@ -204,10 +208,10 @@ code {
 .appShell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   background: transparent;
   color: var(--text);
-  transition: grid-template-columns 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: grid-template-columns var(--sidebar-ease);
 }
 
 .authShell {
@@ -272,7 +276,7 @@ code {
   width: 100%;
   overflow-x: hidden;
   white-space: nowrap;
-  transition: padding 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: padding var(--sidebar-ease), gap var(--sidebar-ease);
   border-right: var(--border-heavy) solid var(--border);
   background:
     repeating-linear-gradient(45deg, rgb(0 0 0 / 0.025) 0 1px, transparent 1px 10px),
@@ -305,14 +309,14 @@ code {
 }
 
 .brandBlock {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--sidebar-rail-size);
   justify-content: space-between;
   align-items: center;
   gap: var(--space-2);
   padding-bottom: var(--space-4);
   border-bottom: var(--border-strong) solid var(--border);
-  transition: padding 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: padding var(--sidebar-ease), gap var(--sidebar-ease), grid-template-columns var(--sidebar-ease);
 }
 
 .brandLockup {
@@ -320,21 +324,21 @@ code {
   display: flex;
   gap: var(--space-2);
   align-items: center;
-  transition: width 0.18s cubic-bezier(0.4, 0, 0.2, 1), gap 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: width var(--sidebar-ease), gap var(--sidebar-ease), transform var(--sidebar-ease);
 }
 
 .brandLockup > div {
   opacity: 1;
   max-width: 180px;
   visibility: visible;
-  transition: opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1), max-width 0.15s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity 160ms ease, max-width var(--sidebar-ease), visibility 160ms ease;
   overflow: hidden;
   white-space: nowrap;
 }
 
 .brandLogo {
-  width: 44px;
-  height: 44px;
+  width: var(--sidebar-rail-size);
+  height: var(--sidebar-rail-size);
   border: var(--border-strong) solid var(--border);
   border-radius: var(--radius-sm);
   object-fit: cover;
@@ -360,9 +364,10 @@ code {
 }
 
 .iconButton {
-  width: 44px;
-  min-width: 44px;
-  height: 44px;
+  width: var(--sidebar-rail-size);
+  min-width: var(--sidebar-rail-size);
+  height: var(--sidebar-rail-size);
+  min-height: var(--sidebar-rail-size);
   padding: 0;
   display: inline-grid;
   place-items: center;
@@ -404,10 +409,10 @@ button .buttonIcon {
 
 .serverPickerRow {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 44px;
+  grid-template-columns: minmax(0, 1fr) var(--sidebar-rail-size);
   gap: var(--space-2);
   align-items: end;
-  transition: gap 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: gap var(--sidebar-ease), grid-template-columns var(--sidebar-ease);
 }
 
 .serverPicker {
@@ -417,7 +422,7 @@ button .buttonIcon {
   opacity: 1;
   max-width: 200px;
   visibility: visible;
-  transition: opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1), max-width 0.15s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity 160ms ease, max-width var(--sidebar-ease), visibility 160ms ease;
   overflow: hidden;
 }
 
@@ -435,8 +440,10 @@ button .buttonIcon {
 }
 
 .addServerButton {
-  height: 44px;
-  min-height: 44px;
+  width: var(--sidebar-rail-size);
+  min-width: var(--sidebar-rail-size);
+  height: var(--sidebar-rail-size);
+  min-height: var(--sidebar-rail-size);
 }
 
 .sideNav button,
@@ -455,14 +462,15 @@ button .buttonIcon {
 }
 
 .sideNav button {
-  transition: padding 0.18s cubic-bezier(0.4, 0, 0.2, 1), gap 0.18s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s, border-color 0.2s, color 0.2s;
+  overflow: hidden;
+  transition: padding var(--sidebar-ease), gap var(--sidebar-ease), background-color 0.2s, border-color 0.2s, color 0.2s;
 }
 
 .navLabel {
   opacity: 1;
   max-width: 180px;
   visibility: visible;
-  transition: opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1), max-width 0.15s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity 160ms ease, max-width var(--sidebar-ease), visibility 160ms ease;
   overflow: hidden;
   white-space: nowrap;
   display: inline-block;
@@ -496,6 +504,7 @@ button .buttonIcon {
 .sideIcon {
   width: 20px;
   height: 20px;
+  display: block;
   flex: 0 0 auto;
   fill: none;
   stroke: currentColor;
@@ -995,21 +1004,24 @@ button .buttonIcon {
 }
 
 .sidebarCollapsed {
-  grid-template-columns: 76px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-collapsed-width) minmax(0, 1fr);
 }
 
 .sidebarCollapsed .sidebar {
   padding: var(--space-3);
+  gap: var(--space-3);
 }
 
 .sidebarCollapsed .brandBlock {
+  grid-template-columns: var(--sidebar-rail-size);
   justify-content: center;
+  justify-items: center;
   gap: var(--space-2);
   padding-bottom: var(--space-3);
 }
 
 .sidebarCollapsed .brandLockup {
-  width: 44px;
+  width: var(--sidebar-rail-size);
   gap: 0;
 }
 
@@ -1020,13 +1032,29 @@ button .buttonIcon {
 }
 
 .sidebarCollapsed .brandLogo {
-  width: 44px;
-  height: 44px;
+  width: var(--sidebar-rail-size);
+  height: var(--sidebar-rail-size);
 }
 
 .sidebarCollapsed .sideNav button {
-  padding: 10px 14px;
+  width: var(--sidebar-rail-size);
+  min-width: var(--sidebar-rail-size);
+  height: var(--sidebar-rail-size);
+  min-height: var(--sidebar-rail-size);
+  padding: 0;
   gap: 0;
+  justify-content: center;
+  justify-self: center;
+  border-radius: var(--radius-sm);
+}
+
+.sidebarCollapsed .sideNav {
+  justify-items: center;
+}
+
+.sidebarCollapsed .sideIcon,
+.sidebarCollapsed .buttonIcon {
+  margin: 0;
 }
 
 .sidebarCollapsed .navLabel {
@@ -1036,8 +1064,10 @@ button .buttonIcon {
 }
 
 .sidebarCollapsed .serverPickerRow {
+  grid-template-columns: var(--sidebar-rail-size);
   gap: 0;
   justify-content: center;
+  justify-items: center;
 }
 
 .sidebarCollapsed .serverPicker {
@@ -1047,24 +1077,39 @@ button .buttonIcon {
 }
 
 .sidebarCollapsed .accountChip {
+  grid-template-columns: 34px;
+  grid-auto-rows: 0;
   gap: 0;
   justify-content: center;
+  justify-items: center;
+  align-items: center;
+  width: var(--sidebar-rail-size);
+  min-height: var(--sidebar-rail-size);
+  justify-self: center;
+  overflow: hidden;
 }
 
 .sidebarCollapsed .accountName {
   opacity: 0;
   max-width: 0;
+  max-height: 0;
+  line-height: 0;
   visibility: hidden;
 }
 
 .sidebarCollapsed .accountLogoutButton {
   opacity: 0;
+  width: 0;
   max-width: 0;
   min-width: 0;
+  height: 0;
+  min-height: 0;
+  max-height: 0;
   visibility: hidden;
   padding: 0;
   border-width: 0;
   margin: 0;
+  overflow: hidden;
 }
 
 .topbar {
@@ -1503,7 +1548,7 @@ button .buttonIcon {
   opacity: 1;
   max-width: 150px;
   visibility: visible;
-  transition: opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1), max-width 0.15s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity 160ms ease, max-width var(--sidebar-ease), visibility 160ms ease;
 }
 
 .accountLogoutButton {
@@ -1520,7 +1565,7 @@ button .buttonIcon {
   color: var(--text);
   opacity: 1;
   visibility: visible;
-  transition: opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1), max-width 0.15s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.15s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.15s cubic-bezier(0.4, 0, 0.2, 1), padding 0.15s cubic-bezier(0.4, 0, 0.2, 1), margin 0.15s cubic-bezier(0.4, 0, 0.2, 1), border-width 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity 160ms ease, max-width var(--sidebar-ease), min-width var(--sidebar-ease), visibility 160ms ease, padding var(--sidebar-ease), margin var(--sidebar-ease), border-width var(--sidebar-ease);
 }
 
 .sideNav .accountLogoutButton {
@@ -1531,7 +1576,7 @@ button .buttonIcon {
   display: flex;
   justify-content: center;
   align-items: center;
-  transition: opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1), max-width 0.15s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.15s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: opacity 160ms ease, max-width var(--sidebar-ease), min-width var(--sidebar-ease), visibility 160ms ease;
 }
 
 .settingsNavLabel {
