@@ -72,13 +72,29 @@ export function runtimeLabel(status: ServerStatus | null, dockerSocketMounted: b
   if (!dockerSocketMounted) return "Docker socket not mounted";
   if (!status.docker.configured) return "Container control not configured";
   if (!status.docker.available) return status.docker.message || "Container unavailable";
-  if (status.docker.running) return "Container running";
+
+  const state = status.docker.state?.toLowerCase();
+  if (state === "running") return "Container running";
+  if (state === "restarting" || state === "starting") return "Container starting";
+  if (state === "exited") return "Container exited";
+  if (state === "paused") return "Container paused";
+  if (state === "dead") return "Container dead";
+  if (state === "created" || !status.docker.running) return "Container stopped";
+
   if (status.docker.state && status.docker.state !== "unknown") return `Container ${status.docker.state}`;
   return "Container status unavailable";
 }
 
 export function runtimeTone(status: ServerStatus | null, dockerSocketMounted: boolean) {
   if (!status || !dockerSocketMounted || !status.docker.configured || !status.docker.available) return "neutral";
+
+  const state = status.docker.state?.toLowerCase();
+  if (state === "running") return "running";
+  if (state === "restarting" || state === "starting") return "starting";
+  if (state === "paused") return "neutral";
+  if (state === "exited" || state === "dead") return "exited";
+  if (state === "created" || !status.docker.running) return "stopped";
+
   return status.docker.running ? "running" : "stopped";
 }
 

@@ -204,7 +204,7 @@ code {
 .appShell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
   background: transparent;
   color: var(--text);
 }
@@ -268,6 +268,10 @@ code {
   position: sticky;
   top: 0;
   height: 100vh;
+  width: 280px;
+  overflow-x: hidden;
+  white-space: nowrap;
+  transition: width 0.18s cubic-bezier(0.4, 0, 0.2, 1), padding 0.18s cubic-bezier(0.4, 0, 0.2, 1);
   border-right: var(--border-heavy) solid var(--border);
   background:
     repeating-linear-gradient(45deg, rgb(0 0 0 / 0.025) 0 1px, transparent 1px 10px),
@@ -299,8 +303,19 @@ code {
 }
 
 .brandBlock {
+  position: relative;
+  height: 60px;
+  box-sizing: border-box;
   padding-bottom: var(--space-4);
   border-bottom: var(--border-strong) solid var(--border);
+  transition: height 0.18s cubic-bezier(0.4, 0, 0.2, 1), padding 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.brandBlock .iconButton {
+  position: absolute;
+  top: 0;
+  right: 0;
+  transition: top 0.18s cubic-bezier(0.4, 0, 0.2, 1), right 0.18s cubic-bezier(0.4, 0, 0.2, 1), left 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .brandLockup {
@@ -309,6 +324,21 @@ code {
   display: flex;
   gap: var(--space-2);
   align-items: center;
+  position: relative;
+  top: 0;
+  left: 0;
+  width: auto;
+  padding-right: 48px;
+  transition: left 0.18s cubic-bezier(0.4, 0, 0.2, 1), width 0.18s cubic-bezier(0.4, 0, 0.2, 1), gap 0.18s cubic-bezier(0.4, 0, 0.2, 1), padding-right 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.brandLockup > div {
+  opacity: 1;
+  max-width: 180px;
+  visibility: visible;
+  transition: opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1), max-width 0.15s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 .brandLogo {
@@ -386,12 +416,18 @@ button .buttonIcon {
   grid-template-columns: minmax(0, 1fr) 44px;
   gap: var(--space-2);
   align-items: end;
+  transition: gap 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .serverPicker {
   min-width: 0;
   display: grid;
   gap: var(--space-2);
+  opacity: 1;
+  max-width: 200px;
+  visibility: visible;
+  transition: opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1), max-width 0.15s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
 }
 
 .serverPicker small {
@@ -425,6 +461,21 @@ button .buttonIcon {
   border: var(--border-strong) solid var(--border);
   border-radius: var(--radius-md);
   padding: 10px 12px;
+}
+
+.sideNav button {
+  transition: padding 0.18s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.navLabel {
+  opacity: 1;
+  max-width: 180px;
+  visibility: visible;
+  transition: opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1), max-width 0.15s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+  overflow: hidden;
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: middle;
 }
 
 .sideNav button.active,
@@ -591,6 +642,14 @@ button .buttonIcon {
   flex-wrap: wrap;
 }
 
+.serverStripMetaRow {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-top: 1px;
+}
+
 .activeServerStrip strong {
   font-size: 20px;
   font-weight: 900;
@@ -605,12 +664,12 @@ button .buttonIcon {
 .runtimeBadge {
   border: var(--border-strong) solid var(--border);
   border-radius: 999px;
-  padding: 4px 10px;
+  padding: 2px 8px;
   color: var(--text);
   background: var(--surface);
-  font-size: 10px;
+  font-size: 9px;
   font-weight: 900;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
   white-space: nowrap;
   line-height: 1.2;
@@ -945,33 +1004,31 @@ button .buttonIcon {
 }
 
 .sidebarCollapsed {
-  grid-template-columns: 76px minmax(0, 1fr);
+  grid-template-columns: auto minmax(0, 1fr);
 }
 
 .sidebarCollapsed .sidebar {
+  width: 76px;
   padding: var(--space-3);
 }
 
 .sidebarCollapsed .brandBlock {
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.sidebarCollapsed .brandBlock h1,
-.sidebarCollapsed .brandBlock p,
-.sidebarCollapsed .navLabel,
-.sidebarCollapsed .serverPicker small,
-.sidebarCollapsed .serverPicker {
-  display: none;
+  height: 108px;
+  padding-bottom: var(--space-3);
+  display: block;
 }
 
 .sidebarCollapsed .brandLockup {
+  left: 3px;
   width: 44px;
-  flex: none;
-  justify-content: center;
+  gap: 0;
+  padding-right: 0;
+}
+
+.sidebarCollapsed .brandLockup > div {
+  opacity: 0;
+  max-width: 0;
+  visibility: hidden;
 }
 
 .sidebarCollapsed .brandLogo {
@@ -979,31 +1036,50 @@ button .buttonIcon {
   height: 44px;
 }
 
+.sidebarCollapsed .brandBlock .iconButton {
+  top: 52px;
+  right: 3px;
+}
+
 .sidebarCollapsed .sideNav button {
-  min-height: 48px;
-  justify-content: center;
-  padding: 0;
+  padding: 10px 14px;
+}
+
+.sidebarCollapsed .navLabel {
+  opacity: 0;
+  max-width: 0;
+  visibility: hidden;
 }
 
 .sidebarCollapsed .serverPickerRow {
-  grid-template-columns: 44px;
-  justify-content: center;
+  gap: 0;
 }
 
-.sidebarCollapsed .iconButton {
-  width: 44px;
-  min-width: 44px;
+.sidebarCollapsed .serverPicker {
+  opacity: 0;
+  max-width: 0;
+  visibility: hidden;
 }
 
 .sidebarCollapsed .accountChip {
-  grid-template-columns: 34px;
+  gap: 0;
   justify-content: center;
-  padding: var(--space-1);
 }
 
-.sidebarCollapsed .accountName,
+.sidebarCollapsed .accountName {
+  opacity: 0;
+  max-width: 0;
+  visibility: hidden;
+}
+
 .sidebarCollapsed .accountLogoutButton {
-  display: none;
+  opacity: 0;
+  max-width: 0;
+  min-width: 0;
+  visibility: hidden;
+  padding: 0;
+  border-width: 0;
+  margin: 0;
 }
 
 .topbar {
@@ -1038,7 +1114,17 @@ button .buttonIcon {
 
 .pill.stopped,
 .runtimeBadge.stopped {
-  color: var(--accent);
+  color: var(--text-soft);
+}
+
+.pill.exited,
+.runtimeBadge.exited {
+  color: var(--sentinel-danger);
+}
+
+.pill.starting,
+.runtimeBadge.starting {
+  color: var(--sentinel-warning);
 }
 
 .warn {
@@ -1050,12 +1136,20 @@ button .buttonIcon {
 }
 
 .runtimeBadge.stopped {
-  border-color: var(--accent);
+  border-color: var(--border-heavy);
+}
+
+.runtimeBadge.exited {
+  border-color: var(--sentinel-danger);
+}
+
+.runtimeBadge.starting {
+  border-color: var(--sentinel-warning);
 }
 
 .runtimeBadge.neutral {
-  border-color: var(--accent);
-  color: var(--accent);
+  border-color: var(--sentinel-accent);
+  color: var(--sentinel-accent);
 }
 
 .notice {
@@ -1388,6 +1482,7 @@ button .buttonIcon {
   min-height: 46px;
   min-width: 0;
   width: 100%;
+  transition: gap 0.18s cubic-bezier(0.4, 0, 0.2, 1), padding 0.18s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .accountIcon {
@@ -1420,6 +1515,10 @@ button .buttonIcon {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  opacity: 1;
+  max-width: 150px;
+  visibility: visible;
+  transition: opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1), max-width 0.15s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .accountLogoutButton {
@@ -1434,6 +1533,9 @@ button .buttonIcon {
   align-items: center;
   background: var(--surface);
   color: var(--text);
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1), max-width 0.15s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.15s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.15s cubic-bezier(0.4, 0, 0.2, 1), padding 0.15s cubic-bezier(0.4, 0, 0.2, 1), margin 0.15s cubic-bezier(0.4, 0, 0.2, 1), border-width 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sideNav .accountLogoutButton {
@@ -1444,6 +1546,7 @@ button .buttonIcon {
   display: flex;
   justify-content: center;
   align-items: center;
+  transition: opacity 0.15s cubic-bezier(0.4, 0, 0.2, 1), max-width 0.15s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.15s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.15s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .settingsNavLabel {
@@ -3186,8 +3289,37 @@ details.compatibilityBadge p {
   .sidebar {
     position: static;
     height: auto;
+    width: 100% !important;
+    transition: none !important;
+    padding: var(--space-4) !important;
     border-right: 0;
     border-bottom: var(--border-heavy) solid var(--border);
+  }
+
+  .brandBlock,
+  .sidebarCollapsed .brandBlock {
+    height: auto !important;
+    padding-bottom: var(--space-4) !important;
+  }
+
+  .brandBlock .iconButton,
+  .sidebarCollapsed .brandBlock .iconButton {
+    position: static !important;
+  }
+
+  .brandLockup,
+  .sidebarCollapsed .brandLockup {
+    left: 0 !important;
+    width: auto !important;
+    gap: var(--space-2) !important;
+    padding-right: 0 !important;
+  }
+
+  .brandLockup > div,
+  .sidebarCollapsed .brandLockup > div {
+    opacity: 1 !important;
+    max-width: none !important;
+    visibility: visible !important;
   }
 
   .sidebarCollapsed .brandBlock h1,
@@ -3198,19 +3330,15 @@ details.compatibilityBadge p {
   .sidebarCollapsed .accountName,
   .sidebarCollapsed .accountLogoutButton,
   .sidebarCollapsed .settingsVersionText {
-    display: block;
+    opacity: 1 !important;
+    max-width: none !important;
+    visibility: visible !important;
   }
 
   .sidebarCollapsed .brandBlock {
     display: flex;
     flex-direction: row;
     justify-content: space-between;
-  }
-
-  .sidebarCollapsed .brandLockup {
-    width: auto;
-    flex: 1;
-    justify-content: flex-start;
   }
 
   .sidebarCollapsed .sideNav button {
@@ -3220,11 +3348,13 @@ details.compatibilityBadge p {
 
   .sidebarCollapsed .serverPickerRow {
     grid-template-columns: minmax(0, 1fr) 44px;
+    gap: var(--space-2) !important;
   }
 
   .sidebarCollapsed .accountChip {
     grid-template-columns: 34px minmax(0, 1fr) 34px;
     justify-content: flex-start;
+    gap: var(--space-2) !important;
   }
 
   .sidebarCollapsed .serverPicker {
@@ -3233,6 +3363,13 @@ details.compatibilityBadge p {
 
   .sidebarCollapsed .accountLogoutButton {
     display: flex;
+    opacity: 1 !important;
+    max-width: 34px !important;
+    min-width: 34px !important;
+    visibility: visible !important;
+    padding: 0 !important;
+    border-width: var(--border-strong) !important;
+    margin: 0 !important;
   }
 
   .workspaceHeader,

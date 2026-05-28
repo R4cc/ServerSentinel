@@ -361,6 +361,27 @@ export default function App() {
   }, [logs, activePage]);
 
   useEffect(() => {
+    if (activePage === "overview" || activePage === "console") {
+      setConsolePinnedToBottom(true);
+      window.requestAnimationFrame(() => {
+        consoleRef.current?.scrollTo({ top: consoleRef.current.scrollHeight });
+        setPendingConsoleEntries(0);
+      });
+    }
+  }, [activePage]);
+
+  useEffect(() => {
+    if (activePage === "mods") {
+      setModsView("manager");
+      setQuery("");
+      setInstalledQuery("");
+      setModSearchResults([]);
+      setModSearchError("");
+      setModCompatibilityFilter("all");
+    }
+  }, [activePage]);
+
+  useEffect(() => {
     const previousCount = previousLogCountRef.current;
     const addedEntries = Math.max(0, logs.length - previousCount);
     previousLogCountRef.current = logs.length;
@@ -451,6 +472,15 @@ export default function App() {
       window.clearInterval(interval);
     };
   }, [activeServer?.id, activePage, demoMode, demoRunning]);
+
+  useEffect(() => {
+    if (!activeServer || demoMode) return;
+    const serverId = activeServer.id;
+    const interval = window.setInterval(() => {
+      void refreshStatus(serverId);
+    }, resourcePollMs);
+    return () => window.clearInterval(interval);
+  }, [activeServer?.id, demoMode]);
 
   useEffect(() => {
     if (!activeServer || activePage !== "overview") return;
@@ -2060,13 +2090,15 @@ export default function App() {
                 <div className="serverStripInfo">
                   <div className="serverStripTitleRow">
                     <strong>{activeServer.displayName}</strong>
+                  </div>
+                  <div className="serverStripMetaRow">
                     <span className={`runtimeBadge ${runtimeTone(activeStatus, effectiveAppState.dockerSocketMounted)}`}>
                       {runtimeLabel(activeStatus, effectiveAppState.dockerSocketMounted)}
                     </span>
+                    <small className="serverStripMeta">
+                      Fabric {activeMinecraftVersion === "Unknown" ? "version unknown" : activeMinecraftVersion}
+                    </small>
                   </div>
-                  <small className="serverStripMeta">
-                    Fabric {activeMinecraftVersion === "Unknown" ? "version unknown" : activeMinecraftVersion}
-                  </small>
                 </div>
               </div>
               <div className="serverStripRight">
