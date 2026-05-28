@@ -38,12 +38,13 @@ export function RuntimeControls({
 }) {
   const controlAvailable = status?.controlAvailable ?? controlAvailableFallback;
   const disabled = isProvisioning || Boolean(busyAction) || !controlAvailable;
+  const isRunning = Boolean(status && status.docker.running);
+  const mainAction = isRunning ? "stop" : "start";
+
   return (
     <div className="runtimeControls" aria-label="Container controls">
-      {(["start", "stop", "restart"] as const).map((action) => {
-        const actionDisabled = disabled
-          || Boolean(status && action === "start" && status.docker.running)
-          || Boolean(status && action === "stop" && !status.docker.running);
+      {([mainAction, "restart"] as const).map((action) => {
+        const actionDisabled = disabled || (action === "restart" && !isRunning);
         return (
           <button
             key={action}

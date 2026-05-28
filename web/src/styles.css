@@ -858,6 +858,7 @@ button .buttonIcon {
 .runtimeControlButton {
   min-height: 44px;
   display: inline-flex;
+  justify-content: center;
   align-items: center;
   gap: var(--space-2);
   border-radius: 999px;
@@ -884,6 +885,7 @@ button .buttonIcon {
 }
 
 .runtimeControlButton.start {
+  min-width: 100px;
   background: linear-gradient(135deg, #10b981, #059669);
   color: #ffffff;
   border-color: #059669;
@@ -898,6 +900,7 @@ button .buttonIcon {
 }
 
 .runtimeControlButton.stop {
+  min-width: 100px;
   background: linear-gradient(135deg, #ef4444, #dc2626);
   color: #ffffff;
   border-color: #dc2626;
