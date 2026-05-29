@@ -57,6 +57,7 @@ SERVERSENTINEL_CONFIG_DIR=/config
 SERVERSENTINEL_SERVERS_DIR=/data/servers
 SERVERSENTINEL_SERVERS_DOCKER_VOLUME=serversentinel-minecraft-servers
 MODRINTH_API_KEY=
+LOG_LEVEL=info
 PORT=8080
 ```
 
@@ -67,6 +68,20 @@ PORT=8080
 Mounting `/var/run/docker.sock` gives ServerSentinel powerful control over Docker on the host. Treat it as trusted-admin access. Only enable it in local or otherwise trusted environments.
 
 Docker socket access is required for creating Minecraft runtime containers, starting, stopping, restarting, Docker logs, overview CPU/memory stats, and console command input. If the socket is not mounted, ServerSentinel can still prepare managed server files, but runtime management is unavailable.
+
+## ServerSentinel Application Logs
+
+ServerSentinel writes its own backend/application logs to stdout and stderr, so they appear in Docker logs:
+
+```bash
+docker logs -f serversentinel
+```
+
+Use `LOG_LEVEL` to control verbosity. The default is `info`; set `LOG_LEVEL=debug` only while diagnosing noisy details.
+
+Application logs are structured JSON and focus on operational events such as startup configuration, Docker integration availability, managed server provisioning, runtime container start/stop/restart, file writes/deletes, Modrinth search/install, manual mod uploads, schedule execution, authentication/user actions, API errors, and console log streaming failures.
+
+Secrets are intentionally excluded. ServerSentinel does not log Modrinth API keys, passwords, full request bodies for sensitive endpoints, uploaded file contents, full Minecraft console logs, or full mod download URLs.
 
 ## Console Command Input
 

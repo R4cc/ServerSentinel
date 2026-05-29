@@ -21,6 +21,7 @@ export const config = {
   serversDir: configuredServersDir,
   serversDockerVolume: defaultServersDockerVolume(configuredServersDir),
   dockerSocket: process.env.DOCKER_SOCKET ?? "/var/run/docker.sock",
+  logLevel: process.env.LOG_LEVEL?.trim() || "info",
   port: Number(process.env.PORT ?? "8080")
 };
 

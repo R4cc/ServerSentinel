@@ -1,4 +1,5 @@
 import Fastify from "fastify";
+import type { FastifyBaseLogger, FastifyRequest } from "fastify";
 import websocket from "@fastify/websocket";
 import { createHash, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import { createReadStream, createWriteStream, existsSync } from "node:fs";
@@ -148,6 +149,7 @@ type Client = {
 const provisionJobs = new Map<string, ProvisionJob>();
 const sessions = new Map<string, Session>();
 const sessionCookieName = "serversentinel_session";
+let appLogger: FastifyBaseLogger | undefined;
 const passwordHashKeyLength = 64;
 const roleRanks: Record<UserRole, number> = {
   basic: 1,
@@ -155,6 +157,80 @@ const roleRanks: Record<UserRole, number> = {
   manager: 3,
   admin: 4
 };
+
+type LogFields = Record<string, unknown>;
+
+function logDebug(fields: LogFields, message: string) {
+  appLogger?.debug(fields, message);
+}
+
+function logInfo(fields: LogFields, message: string) {
+  appLogger?.info(fields, message);
+}
+
+function logWarn(fields: LogFields, message: string) {
+  appLogger?.warn(fields, message);
+}
+
+function logError(fields: LogFields, message: string) {
+  appLogger?.error(fields, message);
+}
+
+function errorLogFields(error: unknown, fallbackStatusCode?: number): LogFields {
+  if (!(error instanceof Error)) {
+    return { errorMessage: String(error) };
+  }
+  const statusCode = "statusCode" in error && typeof error.statusCode === "number" ? error.statusCode : fallbackStatusCode;
+  return {
+    errorName: error.name,
+    errorMessage: error.message,
+    statusCode,
+    stack: statusCode && statusCode < 500 ? undefined : error.stack
+  };
+}
+
+function errorCategory(error: unknown, statusCode?: number) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (statusCode && statusCode < 500) return "validation";
+  if (/docker|container|socket|exec/i.test(message)) return "docker_api";
+  if (/modrinth|fabric|download|fetch|api/i.test(message)) return "external_api";
+  return "internal";
+}
+
+function isExpectedUserError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return /required|not found|invalid|refusing|stop the server|must be|cannot be|larger than|binary files|not configured|unavailable|incompatible/i.test(message);
+}
+
+function logOperationFailure(fields: LogFields, message: string, error: unknown) {
+  const expected = isExpectedUserError(error);
+  const payload = { ...fields, ...errorLogFields(error, expected ? 400 : undefined) };
+  if (expected) {
+    logWarn(payload, message);
+    return;
+  }
+  logError(payload, message);
+}
+
+function routeLogFields(request: FastifyRequest, statusCode?: number): LogFields {
+  return {
+    method: request.method,
+    route: request.routeOptions.url ?? request.raw.url?.split("?")[0] ?? request.url.split("?")[0],
+    statusCode
+  };
+}
+
+function serverLogFields(server: ManagedServer): LogFields {
+  return {
+    serverId: server.id,
+    serverName: server.displayName,
+    containerName: dockerContainerName(server)
+  };
+}
+
+function durationSince(startedAt: number) {
+  return Date.now() - startedAt;
+}
 
 function publicUser(user: StoredUser): PublicUser {
   return {
@@ -639,6 +715,7 @@ function dockerContainerMountValid(server: ManagedServer, details: DockerContain
 }
 
 async function removeDockerContainer(server: ManagedServer) {
+  logInfo({ ...serverLogFields(server), action: "remove_container" }, "Removing Minecraft runtime container");
   await dockerRequest("DELETE", `/containers/${encodeURIComponent(dockerContainerName(server))}?force=1`, 204);
 }
 
@@ -668,6 +745,7 @@ async function ensureDockerImage(image: string) {
     await dockerRequest("GET", `/images/${encodeURIComponent(image)}/json`, 200);
     return;
   } catch {
+    logInfo({ image }, "Pulling Minecraft runtime image");
     const { fromImage, tag } = splitImage(image);
     await dockerBufferRequest(
       "POST",
@@ -697,17 +775,20 @@ async function ensureDockerContainer(server: ManagedServer) {
   const existing = await inspectDockerContainer(server);
   if (existing) {
     if (existing.Config?.Labels?.["serversentinel.managed"] !== "true") {
+      logWarn(serverLogFields(server), "Refusing to control unmanaged Docker container");
       throw new Error(`Container ${dockerContainerName(server)} exists but is not managed by ServerSentinel; refusing to control it`);
     }
     if (dockerContainerMountValid(server, existing)) {
       return;
     }
+    logWarn(serverLogFields(server), "Removing managed Docker container with stale mount");
     await removeDockerContainer(server);
   }
   if (!serverDockerMountSource(server) || !server.serverJar) {
     throw new Error("Docker managed control requires Docker mount source and server jar filename");
   }
 
+  const startedAt = Date.now();
   const image = server.dockerImage || defaultDockerImageForMinecraftVersion(server.minecraftVersion);
   await ensureDockerImage(image);
   const { exposedPorts, portBindings } = parseDockerPorts(server.dockerPorts || "25565:25565/tcp");
@@ -717,37 +798,44 @@ async function ensureDockerContainer(server: ManagedServer) {
   const workingDir = serverDockerWorkingDir(server);
   const bindTarget = serverDockerBindTarget(server);
 
-  await dockerJsonRequest(
-    "POST",
-    `/containers/create?name=${encodeURIComponent(dockerContainerName(server))}`,
-    {
-      Image: image,
-      WorkingDir: workingDir,
-      Cmd: ["sh", "-lc", command],
-      OpenStdin: true,
-      StdinOnce: false,
-      AttachStdin: true,
-      AttachStdout: true,
-      AttachStderr: true,
-      Tty: false,
-      ExposedPorts: exposedPorts,
-      HostConfig: {
-        PortBindings: portBindings,
-        Mounts: [
-          {
-            Type: serverDockerMountSource(server) === config.serversDockerVolume ? "volume" : "bind",
-            Source: serverDockerMountSource(server),
-            Target: bindTarget
-          }
-        ]
+  logInfo({ ...serverLogFields(server), image, workingDir, action: "create_container" }, "Creating Minecraft runtime container");
+  try {
+    await dockerJsonRequest(
+      "POST",
+      `/containers/create?name=${encodeURIComponent(dockerContainerName(server))}`,
+      {
+        Image: image,
+        WorkingDir: workingDir,
+        Cmd: ["sh", "-lc", command],
+        OpenStdin: true,
+        StdinOnce: false,
+        AttachStdin: true,
+        AttachStdout: true,
+        AttachStderr: true,
+        Tty: false,
+        ExposedPorts: exposedPorts,
+        HostConfig: {
+          PortBindings: portBindings,
+          Mounts: [
+            {
+              Type: serverDockerMountSource(server) === config.serversDockerVolume ? "volume" : "bind",
+              Source: serverDockerMountSource(server),
+              Target: bindTarget
+            }
+          ]
+        },
+        Labels: {
+          "serversentinel.server-id": server.id,
+          "serversentinel.managed": "true"
+        }
       },
-      Labels: {
-        "serversentinel.server-id": server.id,
-        "serversentinel.managed": "true"
-      }
-    },
-    [201]
-  );
+      [201]
+    );
+    logInfo({ ...serverLogFields(server), action: "create_container", durationMs: durationSince(startedAt), status: "succeeded" }, "Minecraft runtime container created");
+  } catch (error) {
+    logError({ ...serverLogFields(server), action: "create_container", durationMs: durationSince(startedAt), status: "failed", ...errorLogFields(error) }, "Docker container creation failed");
+    throw error;
+  }
 }
 
 async function dockerStatus(server: ManagedServer) {
@@ -804,28 +892,40 @@ async function dockerStatus(server: ManagedServer) {
 }
 
 async function dockerAction(server: ManagedServer, action: "start" | "stop" | "restart") {
+  const startedAt = Date.now();
+  logInfo({ ...serverLogFields(server), action }, "Runtime container action requested");
   if (!dockerControlConfigured(server)) {
+    logWarn({ ...serverLogFields(server), action }, "Runtime action rejected because Docker integration is not configured");
     throw new Error("Docker integration is not configured for this managed server instance");
   }
-  if (action === "start" || action === "restart") {
-    await ensureDockerContainer(server);
-  } else {
-    const existing = await inspectDockerContainer(server);
-    if (existing?.Config?.Labels?.["serversentinel.managed"] !== "true") {
-      throw new Error(`Container ${dockerContainerName(server)} is not managed by ServerSentinel; refusing to control it`);
+  try {
+    if (action === "start" || action === "restart") {
+      await ensureDockerContainer(server);
+    } else {
+      const existing = await inspectDockerContainer(server);
+      if (existing?.Config?.Labels?.["serversentinel.managed"] !== "true") {
+        throw new Error(`Container ${dockerContainerName(server)} is not managed by ServerSentinel; refusing to control it`);
+      }
     }
-  }
-  await dockerRequest("POST", `/containers/${encodeURIComponent(dockerContainerName(server))}/${action}`, [200, 204, 304]);
-  if (action === "start" || action === "restart") {
-    await new Promise((resolve) => setTimeout(resolve, 1_500));
+    await dockerRequest("POST", `/containers/${encodeURIComponent(dockerContainerName(server))}/${action}`, [200, 204, 304]);
+    if (action === "start" || action === "restart") {
+      await new Promise((resolve) => setTimeout(resolve, 1_500));
+      const status = await dockerStatus(server);
+      if (!status.running) {
+        logWarn({ ...serverLogFields(server), action, durationMs: durationSince(startedAt), status: status.state }, "Runtime container exited unexpectedly after action");
+        const logs = await dockerRecentLogs(server).catch(() => "");
+        throw new Error(`Minecraft runtime container exited after ${action}${logs.trim() ? `: ${logs.trim().slice(-800)}` : ""}`);
+      }
+      logInfo({ ...serverLogFields(server), action, durationMs: durationSince(startedAt), status: status.state }, "Runtime container action completed");
+      return status;
+    }
     const status = await dockerStatus(server);
-    if (!status.running) {
-      const logs = await dockerRecentLogs(server).catch(() => "");
-      throw new Error(`Minecraft runtime container exited after ${action}${logs.trim() ? `: ${logs.trim().slice(-800)}` : ""}`);
-    }
+    logInfo({ ...serverLogFields(server), action, durationMs: durationSince(startedAt), status: status.state }, "Runtime container action completed");
     return status;
+  } catch (error) {
+    logError({ ...serverLogFields(server), action, durationMs: durationSince(startedAt), status: "failed", ...errorLogFields(error) }, "Runtime container action failed");
+    throw error;
   }
-  return dockerStatus(server);
 }
 
 async function dockerCommandInputCapability(server: ManagedServer, currentStatus?: Awaited<ReturnType<typeof dockerStatus>>) {
@@ -1221,6 +1321,7 @@ function streamLatestServerLog(server: ManagedServer, client: Client) {
   let offset = 0;
   let closed = false;
   let announcedEmpty = false;
+  let lastLoggedError = "";
 
   const send = (text: string) => {
     if (text && client.readyState === 1) {
@@ -1259,6 +1360,10 @@ function streamLatestServerLog(server: ManagedServer, client: Client) {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to read logs/latest.log";
+      if (message !== lastLoggedError) {
+        lastLoggedError = message;
+        logWarn({ ...serverLogFields(server), source: "logs/latest.log", ...errorLogFields(error) }, "Console file log stream unavailable");
+      }
       if (client.readyState === 1) {
         client.send(JSON.stringify({ type: "unavailable", message }));
       }
@@ -1289,6 +1394,7 @@ function stripDockerLogHeaders(buffer: Buffer) {
 
 function streamDockerLogs(server: ManagedServer, client: Client) {
   if (!dockerControlConfigured(server) || !dockerAvailable()) {
+    logWarn({ ...serverLogFields(server), source: "docker" }, "Docker log stream unavailable");
     client.send(JSON.stringify({ type: "unavailable", message: "Docker logs are not configured for this server" }));
     return undefined;
   }
@@ -1301,6 +1407,7 @@ function streamDockerLogs(server: ManagedServer, client: Client) {
     },
     (response) => {
       if (response.statusCode !== 200) {
+        logWarn({ ...serverLogFields(server), source: "docker", statusCode: response.statusCode }, "Docker log stream returned non-OK status");
         client.send(JSON.stringify({ type: "unavailable", message: `Docker logs returned ${response.statusCode}` }));
         return;
       }
@@ -1313,6 +1420,7 @@ function streamDockerLogs(server: ManagedServer, client: Client) {
     }
   );
   request.on("error", (error) => {
+    logWarn({ ...serverLogFields(server), source: "docker", ...errorLogFields(error) }, "Docker log stream failed");
     if (client.readyState === 1) {
       client.send(JSON.stringify({ type: "unavailable", message: error.message }));
     }
@@ -1328,12 +1436,15 @@ async function downloadFabricServerJar(server: ManagedServer) {
 
   const target = ensureInsideServer(server, server.serverJar);
   const url = `https://meta.fabricmc.net/v2/versions/loader/${encodeURIComponent(server.minecraftVersion)}/${encodeURIComponent(server.loaderVersion)}/${encodeURIComponent(server.installerVersion)}/server/jar`;
+  const startedAt = Date.now();
+  logInfo({ ...serverLogFields(server), minecraftVersion: server.minecraftVersion, loaderVersion: server.loaderVersion, installerVersion: server.installerVersion, filename: server.serverJar }, "Downloading Fabric server launcher");
   const response = await fetch(url, {
     headers: {
       "User-Agent": "ServerSentinel/0.3.0 (Fabric server creator)"
     }
   });
   if (!response.ok || !response.body) {
+    logError({ ...serverLogFields(server), statusCode: response.status, durationMs: durationSince(startedAt) }, "Fabric server launcher download failed");
     throw new Error(`Fabric server jar download failed: ${response.status} ${response.statusText}`);
   }
   await pipeline(
@@ -1344,6 +1455,7 @@ async function downloadFabricServerJar(server: ManagedServer) {
   if (!downloaded.isFile() || downloaded.size === 0) {
     throw new Error("Fabric server launcher download did not produce a runnable jar");
   }
+  logInfo({ ...serverLogFields(server), filename: server.serverJar, size: downloaded.size, durationMs: durationSince(startedAt) }, "Fabric server launcher downloaded");
 }
 
 async function ensureServerStoppedForModChanges(server: ManagedServer) {
@@ -1363,6 +1475,7 @@ async function createServerFiles(
   await mkdir(server.serverDir, { recursive: true });
   await mkdir(ensureInsideServer(server, "mods"), { recursive: true });
   await mkdir(ensureInsideServer(server, "logs"), { recursive: true });
+  logInfo(serverLogFields(server), "Managed server files created");
   report?.(45, "Downloading Fabric server launcher");
   await downloadFabricServerJar(server);
   report?.(65, "Writing Minecraft configuration");
@@ -1374,7 +1487,8 @@ async function createServerFiles(
   await writeFile(ensureInsideServer(server, "logs/latest.log"), "", { flag: "a" });
 }
 
-async function createManagedServer(input: CreateServerInput, report?: (progress: number, task: string) => void) {
+async function createManagedServer(input: CreateServerInput, report?: (progress: number, task: string) => void, jobId?: string) {
+  const startedAt = Date.now();
   report?.(5, "Validating server settings");
   const displayName = input.displayName?.trim();
   const minecraftVersion = input.minecraftVersion?.trim();
@@ -1426,20 +1540,28 @@ async function createManagedServer(input: CreateServerInput, report?: (progress:
     updatedAt: now
   };
 
-  await createServerFiles(server, input.acceptEula, serverPort, report);
-  if (dockerAvailable()) {
-    report?.(78, "Pulling runtime image and creating Docker container");
-    await ensureDockerContainer(server);
-  } else {
-    report?.(78, "Runtime management unavailable; Docker socket is not mounted");
-  }
+  logInfo({ ...serverLogFields(server), jobId, minecraftVersion, loaderVersion, installerVersion }, "Fabric metadata resolved for provisioning");
+  try {
+    await createServerFiles(server, input.acceptEula, serverPort, report);
+    if (dockerAvailable()) {
+      report?.(78, "Pulling runtime image and creating Docker container");
+      await ensureDockerContainer(server);
+    } else {
+      report?.(78, "Runtime management unavailable; Docker socket is not mounted");
+      logWarn({ ...serverLogFields(server), jobId }, "Docker socket is not mounted during provisioning");
+    }
 
-  report?.(92, "Saving server registration");
-  const servers = await readServers();
-  servers.push(server);
-  await writeServers(servers);
-  report?.(100, "Server setup complete");
-  return server;
+    report?.(92, "Saving server registration");
+    const servers = await readServers();
+    servers.push(server);
+    await writeServers(servers);
+    report?.(100, "Server setup complete");
+    logInfo({ ...serverLogFields(server), jobId, durationMs: durationSince(startedAt), status: "succeeded" }, "Provisioning succeeded");
+    return server;
+  } catch (error) {
+    logError({ ...serverLogFields(server), jobId, durationMs: durationSince(startedAt), status: "failed", ...errorLogFields(error) }, "Provisioning failed");
+    throw error;
+  }
 }
 
 function updateProvisionJob(id: string, patch: Partial<ProvisionJob>) {
@@ -1463,10 +1585,11 @@ function startProvisionJob(input: CreateServerInput) {
     createdAt: now,
     updatedAt: now
   });
+  logInfo({ jobId: id, serverName: input.displayName?.trim() }, "Provisioning job started");
 
   void createManagedServer(input, (progress, task) => {
     updateProvisionJob(id, { progress, task });
-  }).then(async (server) => {
+  }, id).then(async (server) => {
     updateProvisionJob(id, {
       status: "succeeded",
       progress: 100,
@@ -1519,13 +1642,16 @@ function scheduleFromBody(body: {
 }
 
 async function runScheduledExecution(server: ManagedServer, schedule: ScheduledExecution) {
+  const startedAt = Date.now();
   try {
     if (schedule.onlyWhenNoPlayers) {
       const count = await onlinePlayerCount(server);
       if (count === null) {
+        logWarn({ ...serverLogFields(server), scheduleId: schedule.id, commandsCount: schedule.commands.length, reason: "player_count_unknown" }, "Schedule skipped");
         return { status: "skipped", message: "Skipped because online player count could not be determined" };
       }
       if (count > 0) {
+        logInfo({ ...serverLogFields(server), scheduleId: schedule.id, commandsCount: schedule.commands.length, playersOnline: count, reason: "players_online" }, "Schedule skipped");
         return { status: "skipped", message: `Skipped because ${count} player${count === 1 ? "" : "s"} are online` };
       }
     }
@@ -1533,8 +1659,10 @@ async function runScheduledExecution(server: ManagedServer, schedule: ScheduledE
     for (const command of schedule.commands) {
       await sendDockerStdinCommand(server, command);
     }
+    logInfo({ ...serverLogFields(server), scheduleId: schedule.id, commandsCount: schedule.commands.length, durationMs: durationSince(startedAt), status: "success" }, "Schedule execution succeeded");
     return { status: "success", message: `Sent ${schedule.commands.length} command${schedule.commands.length === 1 ? "" : "s"}` };
   } catch (error) {
+    logError({ ...serverLogFields(server), scheduleId: schedule.id, commandsCount: schedule.commands.length, durationMs: durationSince(startedAt), status: "failed", ...errorLogFields(error) }, "Schedule execution failed");
     return { status: "failed", message: error instanceof Error ? error.message : "Scheduled execution failed" };
   }
 }
@@ -1555,11 +1683,13 @@ async function tickSchedules() {
       try {
         if (!cronMatches(schedule.cron, now)) continue;
       } catch {
+        logWarn({ ...serverLogFields(server), scheduleId: schedule.id, cron: schedule.cron, reason: "invalid_cron" }, "Schedule skipped");
         continue;
       }
 
       runningSchedules.add(key);
       try {
+        logInfo({ ...serverLogFields(server), scheduleId: schedule.id, commandsCount: schedule.commands.length }, "Schedule matched");
         const result = await runScheduledExecution(server, schedule);
         schedule.lastRunAt = new Date().toISOString();
         schedule.lastStatus = result.status;
@@ -1578,7 +1708,21 @@ async function tickSchedules() {
 }
 
 export async function startServer() {
-const app = Fastify({ logger: true, bodyLimit: 180 * 1024 * 1024 });
+const app = Fastify({
+  logger: {
+    level: config.logLevel,
+    redact: [
+      "req.headers.authorization",
+      "req.headers.cookie",
+      "res.headers.set-cookie",
+      "request.headers.authorization",
+      "request.headers.cookie"
+    ]
+  },
+  disableRequestLogging: true,
+  bodyLimit: 180 * 1024 * 1024
+});
+appLogger = app.log;
 await app.register(websocket);
 
 app.get("/api/auth/session", async (request) => {
@@ -1614,6 +1758,7 @@ app.post<{ Body: { username?: string; password?: string } }>("/api/auth/register
   const sessionId = randomBytes(32).toString("base64url");
   sessions.set(sessionId, { id: sessionId, userId: user.id, createdAt: now });
   reply.header("Set-Cookie", sessionCookie(sessionId, 60 * 60 * 24 * 14));
+  logInfo({ userId: user.id, username: user.username, role: user.role, action: "register_first" }, "Initial admin user created");
   return { authenticated: true, setupRequired: false, user: publicUser(user) };
 });
 
@@ -1621,11 +1766,13 @@ app.post<{ Body: { username?: string; password?: string } }>("/api/auth/login", 
   const username = request.body.username?.trim() ?? "";
   const password = request.body.password ?? "";
   if (username === "demo" && password === "demo") {
+    logInfo({ username: "demo", action: "login_demo" }, "Demo login requested");
     return { authenticated: false, setupRequired: (await readUsers()).length === 0, demo: true, user: null };
   }
   const users = await readUsers();
   const user = users.find((candidate) => candidate.username.toLowerCase() === username.toLowerCase());
   if (!user || !verifyPassword(password, user)) {
+    logWarn({ username, action: "login", status: "failed" }, "Login failed");
     const error = new Error("Invalid username or password") as Error & { statusCode?: number };
     error.statusCode = 401;
     throw error;
@@ -1634,6 +1781,7 @@ app.post<{ Body: { username?: string; password?: string } }>("/api/auth/login", 
   const now = new Date().toISOString();
   sessions.set(sessionId, { id: sessionId, userId: user.id, createdAt: now });
   reply.header("Set-Cookie", sessionCookie(sessionId, 60 * 60 * 24 * 14));
+  logInfo({ userId: user.id, username: user.username, role: user.role, action: "login", status: "succeeded" }, "Login succeeded");
   return { authenticated: true, setupRequired: false, user: publicUser(user) };
 });
 
@@ -1643,6 +1791,7 @@ app.post("/api/auth/logout", async (request, reply) => {
     sessions.delete(sessionId);
   }
   reply.header("Set-Cookie", sessionCookie("", 0));
+  logInfo({ action: "logout" }, "User logged out");
   return { ok: true };
 });
 
@@ -1673,6 +1822,7 @@ app.post<{ Body: { username?: string; password?: string; role?: UserRole } }>("/
   };
   users.push(user);
   await writeUsers(users);
+  logInfo({ userId: user.id, username: user.username, role: user.role, action: "create_user" }, "User created");
   return publicUser(user);
 });
 
@@ -1708,6 +1858,7 @@ app.put<{ Params: { id: string }; Body: { username?: string; password?: string; 
     ...(password ? hashPassword(password) : {})
   };
   await writeUsers(users);
+  logInfo({ userId: users[index].id, username: users[index].username, role: users[index].role, action: "update_user" }, "User updated");
   return publicUser(users[index]);
 });
 
@@ -1731,6 +1882,7 @@ app.delete<{ Params: { id: string } }>("/api/users/:id", async (request) => {
       sessions.delete(sessionId);
     }
   }
+  logInfo({ userId: user.id, username: user.username, action: "delete_user" }, "User deleted");
   return { ok: true };
 });
 
@@ -1772,6 +1924,7 @@ app.put<{ Body: { modrinthApiKey?: string } }>("/api/settings/modrinth", async (
   const settings = await readSettings();
   settings.modrinthApiKey = key;
   await writeSettings(settings);
+  logInfo({ action: "configure_modrinth", status: "succeeded" }, "Modrinth API configuration updated");
   return { ok: true, modrinthApiConfigured: true };
 });
 
@@ -1793,6 +1946,7 @@ app.post<{
 }>("/api/servers", async (request) => {
   await requireRequestPermission(request, "manager");
   const server = await createManagedServer(request.body);
+  logInfo(serverLogFields(server), "Managed server created");
   return publicServer(server);
 });
 
@@ -1905,6 +2059,7 @@ app.delete<{
 
   servers.splice(index, 1);
   await writeServers(servers);
+  logInfo({ ...serverLogFields(server), deletedFiles, deletedContainer, action: "delete_server" }, "Managed server deleted");
   return { ok: true, deletedFiles, deletedContainer };
 });
 
@@ -1941,7 +2096,15 @@ app.post<{ Params: { id: string } }>("/api/servers/:id/restart", async (request)
 app.post<{ Params: { id: string }; Body: { command?: string } }>("/api/servers/:id/command", async (request) => {
   await requireRequestPermission(request, "expanded");
   const server = await getServer(request.params.id);
-  return sendDockerStdinCommand(server, request.body.command ?? "");
+  const startedAt = Date.now();
+  try {
+    const result = await sendDockerStdinCommand(server, request.body.command ?? "");
+    logInfo({ ...serverLogFields(server), action: "send_console_command", commandsCount: 1, durationMs: durationSince(startedAt), status: "succeeded" }, "Console command sent");
+    return result;
+  } catch (error) {
+    logOperationFailure({ ...serverLogFields(server), action: "send_console_command", commandsCount: request.body.command?.trim() ? 1 : 0, durationMs: durationSince(startedAt), status: "failed" }, "Console command failed", error);
+    throw error;
+  }
 });
 
 app.get<{ Params: { id: string } }>("/api/servers/:id/schedules", async (request) => {
@@ -1963,6 +2126,7 @@ app.post<{
   servers[index].schedules = [...(servers[index].schedules ?? []), schedule];
   servers[index].updatedAt = new Date().toISOString();
   await writeServers(servers);
+  logInfo({ ...serverLogFields(servers[index]), scheduleId: schedule.id, enabled: schedule.enabled, action: "create_schedule" }, "Schedule created");
   return schedule;
 });
 
@@ -1985,6 +2149,7 @@ app.put<{
   servers[serverIndex].schedules = schedules;
   servers[serverIndex].updatedAt = new Date().toISOString();
   await writeServers(servers);
+  logInfo({ ...serverLogFields(servers[serverIndex]), scheduleId: schedules[scheduleIndex].id, enabled: schedules[scheduleIndex].enabled, action: "update_schedule" }, "Schedule updated");
   return schedules[scheduleIndex];
 });
 
@@ -1998,6 +2163,7 @@ app.delete<{ Params: { id: string; scheduleId: string } }>("/api/servers/:id/sch
   servers[serverIndex].schedules = (servers[serverIndex].schedules ?? []).filter((schedule) => schedule.id !== request.params.scheduleId);
   servers[serverIndex].updatedAt = new Date().toISOString();
   await writeServers(servers);
+  logInfo({ ...serverLogFields(servers[serverIndex]), scheduleId: request.params.scheduleId, action: "delete_schedule" }, "Schedule deleted");
   return { ok: true };
 });
 
@@ -2008,6 +2174,7 @@ app.get("/ws/console", { websocket: true }, async (socket, request) => {
   try {
     await requireAuthenticated(request.headers.cookie);
     const server = await getServer(serverId);
+    logDebug({ ...serverLogFields(server), source: "console_websocket" }, "Console stream connected");
     client.send(JSON.stringify({ type: "status", status: await dockerStatus(server) }));
     if (dockerControlConfigured(server) && dockerAvailable()) {
       const logRequest = streamDockerLogs(server, client);
@@ -2018,6 +2185,7 @@ app.get("/ws/console", { websocket: true }, async (socket, request) => {
     const stopFileLogs = streamLatestServerLog(server, client);
     socket.on("close", stopFileLogs);
   } catch (error) {
+    logWarn({ serverId, source: "console_websocket", ...errorLogFields(error) }, "Console stream unavailable");
     client.send(JSON.stringify({ type: "unavailable", message: (error as Error).message }));
   }
 });
@@ -2075,10 +2243,12 @@ app.get<{ Params: { id: string }; Querystring: { path?: string } }>("/api/server
     throw new Error("Path is not a file");
   }
   if (targetStat.size > 2 * 1024 * 1024) {
+    logWarn({ ...serverLogFields(server), path: toPublicPath(server, target), size: targetStat.size, reason: "editor_size_limit" }, "File edit rejected");
     throw new Error("File is larger than the 2 MiB editor limit");
   }
   const buffer = await readFile(target);
   if (buffer.includes(0)) {
+    logWarn({ ...serverLogFields(server), path: toPublicPath(server, target), reason: "binary_file" }, "File edit rejected");
     throw new Error("Binary files cannot be edited in the browser editor");
   }
   return {
@@ -2100,6 +2270,7 @@ app.put<{ Params: { id: string }; Body: { path?: string; content?: string } }>("
     throw new Error("Path is not a file");
   }
   await writeFile(target, request.body.content, "utf8");
+  logInfo({ ...serverLogFields(server), path: toPublicPath(server, target), action: "write_file" }, "Server file written");
   return { ok: true, path: toPublicPath(server, target) };
 });
 
@@ -2134,6 +2305,7 @@ app.delete<{ Params: { id: string }; Querystring: { path?: string; recursive?: s
   if (publicPath.startsWith("/mods/") && (publicPath.endsWith(".jar") || publicPath.endsWith(".jar.disabled"))) {
     await deleteModIcon(server, basename(publicPath));
   }
+  logInfo({ ...serverLogFields(server), path: publicPath, recursive: request.query.recursive === "true", action: "delete_file" }, "Server file deleted");
   return { ok: true, path: publicPath };
 });
 
@@ -2367,6 +2539,7 @@ app.patch<{ Params: { id: string }; Body: { filename?: string; enabled?: boolean
     delete prefs[sourceName];
     await writeModPreferences(server, prefs);
   }
+  logInfo({ ...serverLogFields(server), filename: basename(target), enabled, action: "toggle_mod" }, "Mod state changed");
   return { ok: true, filename: basename(target), enabled };
 });
 
@@ -2379,6 +2552,7 @@ app.put<{ Params: { id: string }; Body: { filename?: string; channel?: ReleaseCh
   const prefs = await readModPreferences(server);
   prefs[filename] = { ...prefs[filename], channel };
   await writeModPreferences(server, prefs);
+  logInfo({ ...serverLogFields(server), filename, channel, action: "set_mod_channel" }, "Mod update channel changed");
   return { ok: true, filename, channel };
 });
 
@@ -2395,32 +2569,42 @@ app.delete<{ Params: { id: string }; Querystring: { filename?: string } }>("/api
     delete prefs[filename];
     await writeModPreferences(server, prefs);
   }
+  logInfo({ ...serverLogFields(server), filename, action: "remove_mod" }, "Mod removed");
   return { ok: true, filename };
 });
 
 app.post<{ Params: { id: string }; Body: { filename?: string; contentBase64?: string } }>("/api/servers/:id/mods/upload", async (request) => {
   await requireRequestPermission(request, "manager");
   const server = await getServer(request.params.id);
-  await ensureServerStoppedForModChanges(server);
-  const filename = safeModFilename(safeInstalledModFilename(request.body.filename));
-  if (!request.body.contentBase64) {
-    throw new Error("Uploaded mod content is required");
+  const startedAt = Date.now();
+  let filename: string | undefined;
+  try {
+    await ensureServerStoppedForModChanges(server);
+    filename = safeModFilename(safeInstalledModFilename(request.body.filename));
+    logInfo({ ...serverLogFields(server), filename, action: "upload_mod" }, "Manual mod upload started");
+    if (!request.body.contentBase64) {
+      throw new Error("Uploaded mod content is required");
+    }
+    const content = Buffer.from(request.body.contentBase64, "base64");
+    if (!content.length || content.length > 128 * 1024 * 1024) {
+      throw new Error("Uploaded mod must be between 1 byte and 128 MiB");
+    }
+    await mkdir(ensureInsideServer(server, "mods"), { recursive: true });
+    await validateExistingInsideServer(server, "mods");
+    const destination = await ensureWritableInsideServer(server, join("mods", filename));
+    await writeFile(destination, content);
+    await deleteModIcon(server, filename);
+    const prefs = await readModPreferences(server);
+    if (prefs[filename]?.modrinth) {
+      prefs[filename] = { channel: normalizeReleaseChannel(prefs[filename].channel) };
+      await writeModPreferences(server, prefs);
+    }
+    logInfo({ ...serverLogFields(server), filename: basename(destination), size: content.length, durationMs: durationSince(startedAt), action: "upload_mod", status: "succeeded" }, "Manual mod upload succeeded");
+    return { ok: true, filename: basename(destination), path: toPublicPath(server, destination) };
+  } catch (error) {
+    logOperationFailure({ ...serverLogFields(server), filename, durationMs: durationSince(startedAt), action: "upload_mod", status: "failed" }, "Manual mod upload failed", error);
+    throw error;
   }
-  const content = Buffer.from(request.body.contentBase64, "base64");
-  if (!content.length || content.length > 128 * 1024 * 1024) {
-    throw new Error("Uploaded mod must be between 1 byte and 128 MiB");
-  }
-  await mkdir(ensureInsideServer(server, "mods"), { recursive: true });
-  await validateExistingInsideServer(server, "mods");
-  const destination = await ensureWritableInsideServer(server, join("mods", filename));
-  await writeFile(destination, content);
-  await deleteModIcon(server, filename);
-  const prefs = await readModPreferences(server);
-  if (prefs[filename]?.modrinth) {
-    prefs[filename] = { channel: normalizeReleaseChannel(prefs[filename].channel) };
-    await writeModPreferences(server, prefs);
-  }
-  return { ok: true, filename: basename(destination), path: toPublicPath(server, destination) };
 });
 
 app.get<{ Querystring: { query?: string; serverId?: string; channel?: ReleaseChannel; compatibility?: string } }>("/api/modrinth/search", async (request) => {
@@ -2435,133 +2619,182 @@ app.get<{ Querystring: { query?: string; serverId?: string; channel?: ReleaseCha
   const minecraftVersion = server.minecraftVersion;
   const selectedChannel = normalizeReleaseChannel(request.query.channel);
   const compatibilityFilter = request.query.compatibility;
+  const startedAt = Date.now();
+  logDebug({ ...serverLogFields(server), queryLength: query.length, channel: selectedChannel, compatibilityFilter, action: "modrinth_search" }, "Modrinth search started");
 
-  const url = new URL("https://api.modrinth.com/v2/search");
-  url.searchParams.set("query", query);
-  url.searchParams.set("limit", "20");
-  
-  const facets: string[][] = [
-    ["project_type:mod"],
-    ["categories:fabric"],
-    [`versions:${minecraftVersion}`]
-  ];
-  if (compatibilityFilter !== "all") {
-    facets.push(["server_side:required", "server_side:optional"]);
-  }
-  url.searchParams.set("facets", JSON.stringify(facets));
+  try {
+    const url = new URL("https://api.modrinth.com/v2/search");
+    url.searchParams.set("query", query);
+    url.searchParams.set("limit", "20");
 
-  const response = await modrinthFetch(url.toString());
-  const body = await response.json() as { hits?: ModrinthProject[] };
-  const hits = await Promise.all((body.hits ?? []).map(async (hit) => {
-    const projectId = hit.project_id || hit.id;
-    if (!projectId) {
+    const facets: string[][] = [
+      ["project_type:mod"],
+      ["categories:fabric"],
+      [`versions:${minecraftVersion}`]
+    ];
+    if (compatibilityFilter !== "all") {
+      facets.push(["server_side:required", "server_side:optional"]);
+    }
+    url.searchParams.set("facets", JSON.stringify(facets));
+
+    const response = await modrinthFetch(url.toString());
+    const body = await response.json() as { hits?: ModrinthProject[] };
+    const hits = await Promise.all((body.hits ?? []).map(async (hit) => {
+      const projectId = hit.project_id || hit.id;
+      if (!projectId) {
+        return {
+          ...hit,
+          compatibility: unknownCompatibility()
+        };
+      }
       return {
         ...hit,
-        compatibility: unknownCompatibility()
+        project_id: projectId,
+        compatibility: await resolveModrinthProjectCompatibility({
+          projectId,
+          minecraftVersion,
+          loader: "fabric",
+          channel: selectedChannel
+        })
       };
-    }
-    return {
-      ...hit,
-      project_id: projectId,
-      compatibility: await resolveModrinthProjectCompatibility({
-        projectId,
-        minecraftVersion,
-        loader: "fabric",
-        channel: selectedChannel
-      })
-    };
-  }));
-  return { ...body, hits, status: hits.length > 0 ? "projects_found" : "no_project_found" };
+    }));
+    logInfo({ ...serverLogFields(server), resultCount: hits.length, durationMs: durationSince(startedAt), action: "modrinth_search", status: hits.length > 0 ? "projects_found" : "no_project_found" }, "Modrinth search completed");
+    return { ...body, hits, status: hits.length > 0 ? "projects_found" : "no_project_found" };
+  } catch (error) {
+    logError({ ...serverLogFields(server), durationMs: durationSince(startedAt), action: "modrinth_search", status: "failed", ...errorLogFields(error) }, "Modrinth search failed");
+    throw error;
+  }
 });
 
 app.post<{ Body: { serverId?: string; projectId?: string; channel?: ReleaseChannel; forceIncompatible?: boolean } }>("/api/modrinth/install", async (request) => {
   await requireRequestPermission(request, "manager");
   const server = await getServer(request.body.serverId);
-  await ensureServerStoppedForModChanges(server);
+  const startedAt = Date.now();
   const projectId = request.body.projectId?.trim();
-  if (!projectId || !server.minecraftVersion || !server.loaderVersion) {
-    throw new Error("projectId, Minecraft version, and Fabric loader version are required for compatible Fabric installs");
-  }
-  const minecraftVersion = server.minecraftVersion;
-
-  const projectUrl = new URL(`https://api.modrinth.com/v2/project/${encodeURIComponent(projectId)}`);
-  const projectResponse = await modrinthFetch(projectUrl.toString());
-  const project = await projectResponse.json() as { icon_url?: string | null };
-  const selectedChannel = normalizeReleaseChannel(request.body.channel);
-  const compatibility = await resolveModrinthProjectCompatibility({
-    projectId,
-    minecraftVersion,
-    loader: "fabric",
-    channel: selectedChannel
-  });
-  if (!compatibility.compatible && !request.body.forceIncompatible) {
-    throw new Error(`${compatibility.reason}. Set forceIncompatible to true to install anyway.`);
-  }
-  const file = compatibility.file;
-  if (!compatibility.matchedVersionId || !compatibility.matchedVersionNumber || !file) {
-    throw new Error("No installable .jar file was found for that project");
-  }
-  if (!file.url.startsWith("https://")) {
-    throw new Error("Refusing to download a non-HTTPS mod file");
-  }
-
-  await mkdir(ensureInsideServer(server, "mods"), { recursive: true });
-  await validateExistingInsideServer(server, "mods");
-  const destination = await ensureWritableInsideServer(server, join("mods", safeModFilename(file.filename)));
-  const downloadResponse = await modrinthFetch(file.url);
-  if (!downloadResponse.body) {
-    throw new Error("Mod download returned no body");
-  }
-  await pipeline(
-    Readable.fromWeb(downloadResponse.body as unknown as NodeReadableStream<Uint8Array>),
-    createWriteStream(destination)
-  );
-  const filename = basename(destination);
-  await saveModIcon(server, filename, project.icon_url);
-  const prefs = await readModPreferences(server);
-  prefs[filename] = {
-    channel: selectedChannel,
-    modrinth: {
-      projectId,
-      versionId: compatibility.matchedVersionId,
-      filename,
-      versionNumber: compatibility.matchedVersionNumber,
-      versionType: compatibility.matchedVersionType,
-      gameVersions: compatibility.matchedGameVersions ?? [],
-      loaders: compatibility.matchedLoaders ?? [],
-      hashes: file.hashes,
-      installedAt: new Date().toISOString(),
-      installedWithForceIncompatible: !compatibility.compatible,
-      incompatibilityReason: compatibility.compatible ? undefined : compatibility.reason,
-      clientSide: compatibility.clientSide,
-      serverSide: compatibility.serverSide,
-      forceIncompatible: !compatibility.compatible
+  try {
+    await ensureServerStoppedForModChanges(server);
+    if (!projectId || !server.minecraftVersion || !server.loaderVersion) {
+      throw new Error("projectId, Minecraft version, and Fabric loader version are required for compatible Fabric installs");
     }
-  };
-  await writeModPreferences(server, prefs);
+    const minecraftVersion = server.minecraftVersion;
+    logInfo({ ...serverLogFields(server), projectId, channel: request.body.channel, forceIncompatible: Boolean(request.body.forceIncompatible), action: "modrinth_install" }, "Modrinth install started");
 
-  return {
-    ok: true,
-    projectId,
-    version: compatibility.matchedVersionNumber,
-    filename,
-    path: toPublicPath(server, destination),
-    channel: compatibility.matchedVersionType ?? "release",
-    compatibility
-  };
+    const projectUrl = new URL(`https://api.modrinth.com/v2/project/${encodeURIComponent(projectId)}`);
+    const projectResponse = await modrinthFetch(projectUrl.toString());
+    const project = await projectResponse.json() as { icon_url?: string | null };
+    const selectedChannel = normalizeReleaseChannel(request.body.channel);
+    const compatibility = await resolveModrinthProjectCompatibility({
+      projectId,
+      minecraftVersion,
+      loader: "fabric",
+      channel: selectedChannel
+    });
+    logInfo({ ...serverLogFields(server), projectId, versionId: compatibility.matchedVersionId, compatibility: compatibility.status, forceIncompatible: Boolean(request.body.forceIncompatible), action: "modrinth_install" }, "Modrinth compatibility decision");
+    if (!compatibility.compatible && !request.body.forceIncompatible) {
+      logWarn({ ...serverLogFields(server), projectId, compatibility: compatibility.status, reason: compatibility.reason, action: "modrinth_install" }, "Modrinth install rejected as incompatible");
+      throw new Error(`${compatibility.reason}. Set forceIncompatible to true to install anyway.`);
+    }
+    const file = compatibility.file;
+    if (!compatibility.matchedVersionId || !compatibility.matchedVersionNumber || !file) {
+      throw new Error("No installable .jar file was found for that project");
+    }
+    if (!file.url.startsWith("https://")) {
+      throw new Error("Refusing to download a non-HTTPS mod file");
+    }
+    const downloadHost = new URL(file.url).host;
+
+    await mkdir(ensureInsideServer(server, "mods"), { recursive: true });
+    await validateExistingInsideServer(server, "mods");
+    const destination = await ensureWritableInsideServer(server, join("mods", safeModFilename(file.filename)));
+    const downloadResponse = await modrinthFetch(file.url);
+    if (!downloadResponse.body) {
+      throw new Error("Mod download returned no body");
+    }
+    await pipeline(
+      Readable.fromWeb(downloadResponse.body as unknown as NodeReadableStream<Uint8Array>),
+      createWriteStream(destination)
+    );
+    const filename = basename(destination);
+    await saveModIcon(server, filename, project.icon_url);
+    const prefs = await readModPreferences(server);
+    prefs[filename] = {
+      channel: selectedChannel,
+      modrinth: {
+        projectId,
+        versionId: compatibility.matchedVersionId,
+        filename,
+        versionNumber: compatibility.matchedVersionNumber,
+        versionType: compatibility.matchedVersionType,
+        gameVersions: compatibility.matchedGameVersions ?? [],
+        loaders: compatibility.matchedLoaders ?? [],
+        hashes: file.hashes,
+        installedAt: new Date().toISOString(),
+        installedWithForceIncompatible: !compatibility.compatible,
+        incompatibilityReason: compatibility.compatible ? undefined : compatibility.reason,
+        clientSide: compatibility.clientSide,
+        serverSide: compatibility.serverSide,
+        forceIncompatible: !compatibility.compatible
+      }
+    };
+    await writeModPreferences(server, prefs);
+
+    logInfo({ ...serverLogFields(server), projectId, versionId: compatibility.matchedVersionId, filename, downloadHost, durationMs: durationSince(startedAt), forceIncompatible: !compatibility.compatible, action: "modrinth_install", status: "succeeded" }, "Modrinth install succeeded");
+    return {
+      ok: true,
+      projectId,
+      version: compatibility.matchedVersionNumber,
+      filename,
+      path: toPublicPath(server, destination),
+      channel: compatibility.matchedVersionType ?? "release",
+      compatibility
+    };
+  } catch (error) {
+    logOperationFailure({ ...serverLogFields(server), projectId, durationMs: durationSince(startedAt), forceIncompatible: Boolean(request.body.forceIncompatible), action: "modrinth_install", status: "failed" }, "Modrinth install failed", error);
+    throw error;
+  }
 });
 
 await registerStaticFrontend(app);
 
 app.setErrorHandler((error, _request, reply) => {
-  app.log.error(error);
   const statusCode = error instanceof Error && "statusCode" in error && typeof error.statusCode === "number" ? error.statusCode : 400;
+  const errorMessage = error instanceof Error ? error.message : String(error);
+  const fields = {
+    ...routeLogFields(_request, statusCode),
+    category: errorCategory(error, statusCode),
+    ...errorLogFields(error, statusCode)
+  };
+  if (statusCode >= 500) {
+    app.log.error(fields, "API request failed");
+  } else if (/escapes|outside|unsafe path/i.test(errorMessage)) {
+    app.log.warn({ ...fields, action: "blocked_unsafe_path" }, "Blocked unsafe file path");
+  } else {
+    app.log.warn(fields, "API request rejected");
+  }
   reply.code(statusCode).send({ error: error instanceof Error ? error.message : "Request failed" });
 });
 
 setInterval(() => {
-  void tickSchedules().catch((error: unknown) => app.log.error(error));
+  void tickSchedules().catch((error: unknown) => app.log.error({ ...errorLogFields(error), category: "scheduler" }, "Schedule polling failed"));
 }, 30_000).unref();
 
+const startupUsers = await readUsers().catch(() => []);
+const modrinthConfigured = Boolean(await modrinthApiKey().catch(() => ""));
+const dockerSocketMounted = dockerAvailable();
+app.log.info({
+  appVersion: process.env.npm_package_version ?? "0.1.0",
+  configDir: config.configDir,
+  managedServersDir: config.serversDir,
+  dockerSocketMounted,
+  modrinthApiConfigured: modrinthConfigured,
+  authEnabled: startupUsers.length > 0,
+  logLevel: config.logLevel,
+  port: config.port
+}, "ServerSentinel startup configuration");
+if (!dockerSocketMounted) {
+  app.log.warn({ dockerSocket: config.dockerSocket }, "Docker socket is not mounted; runtime management is unavailable");
+}
+
 await app.listen({ host: "0.0.0.0", port: config.port });
+app.log.info({ port: config.port }, "ServerSentinel web panel listening");
 }
