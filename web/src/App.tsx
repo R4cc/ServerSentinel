@@ -2616,12 +2616,11 @@ export default function App() {
                     <div>
                       <h2>{modsView === "search" ? "Search Modrinth Mods" : "Installed Mods"}</h2>
                     </div>
-                    <div className="modsContext" style={{ display: "flex", alignItems: "center", gap: "var(--space-3)" }}>
+                    <div className="modsContext modsContextRow">
                       {modsView === "search" && (
                         <button
                           type="button"
-                          className="secondaryButton"
-                          style={{ minHeight: "32px", padding: "0 var(--space-3)", fontSize: "11px" }}
+                          className="secondaryButton compactButton"
                           onClick={() => {
                             setQuery("");
                             setModSearchResults([]);
@@ -2642,7 +2641,7 @@ export default function App() {
                       <span>Installed mod management still works. Add a key in Settings to search and install new mods.</span>
                     </section>
                   )}
-                  <input ref={modUploadRef} className="hiddenInput" type="file" accept=".jar" onChange={uploadMod} style={{ display: "none" }} />
+                  <input ref={modUploadRef} className="hiddenInput" type="file" accept=".jar" onChange={uploadMod} />
 
                   {modsView === "manager" && (
                     <div className="mods">
@@ -2678,7 +2677,7 @@ export default function App() {
                       </div>
 
                       <div className="modsToolbarCompact">
-                        <div className="modsSearchInputCompact" style={{ maxWidth: "480px" }}>
+                        <div className="modsSearchInputCompact">
                           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="square" strokeLinejoin="miter">
                             <circle cx="11" cy="11" r="6" />
                             <path d="m16 16 4 4" />
@@ -2714,7 +2713,7 @@ export default function App() {
                           <div className="modsTableCell">Update Status</div>
                           <div className="modsTableCell">Source</div>
                           <div className="modsTableCell">Status</div>
-                          <div className="modsTableCell" style={{ justifySelf: "end" }}>Actions</div>
+                          <div className="modsTableCell alignEnd">Actions</div>
                         </div>
 
                         {filteredInstalledMods.length === 0 ? (
@@ -2753,21 +2752,21 @@ export default function App() {
                                     }`}>
                                       {isComp ? (
                                         <>
-                                          <svg className="buttonIcon" style={{ strokeWidth: 3, width: 14, height: 14, marginRight: "4px" }} viewBox="0 0 24 24">
+                                          <svg className="buttonIcon statusIconSmall" viewBox="0 0 24 24">
                                             <path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" />
                                           </svg>
                                           <span>Compatible</span>
                                         </>
                                       ) : (compStatus === "unknown" || mod.compatibility?.serverSide === "unknown" || mod.compatibility?.reason === "Server-side support unknown") ? (
                                         <>
-                                          <svg className="buttonIcon" style={{ strokeWidth: 3, width: 14, height: 14, marginRight: "4px" }} viewBox="0 0 24 24">
+                                          <svg className="buttonIcon statusIconSmall" viewBox="0 0 24 24">
                                             <path d="M12 9v4m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" fill="none" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" />
                                           </svg>
                                           <span>{compatibilityLabel(mod.compatibility)}</span>
                                         </>
                                       ) : (
                                         <>
-                                          <svg className="buttonIcon" style={{ strokeWidth: 3, width: 14, height: 14, marginRight: "4px" }} viewBox="0 0 24 24">
+                                          <svg className="buttonIcon statusIconSmall" viewBox="0 0 24 24">
                                             <path d="M18 6 6 18M6 6l12 12" fill="none" stroke="currentColor" />
                                           </svg>
                                           <span>{compatibilityLabel(mod.compatibility)}</span>
@@ -2782,9 +2781,9 @@ export default function App() {
 
                                 <div className="modsTableCell" data-label="Version">
                                   <div className="compatCol">
-                                    <span style={{ fontWeight: 800 }}>{mod.versionInfo?.currentVersion || mod.modrinth?.versionNumber || "Unknown"}</span>
+                                    <span className="strongValue">{mod.versionInfo?.currentVersion || mod.modrinth?.versionNumber || "Unknown"}</span>
                                     {mod.modrinth?.loaders && mod.modrinth.loaders.length > 0 && (
-                                      <span className="compatMeta" style={{ textTransform: "capitalize" }}>
+                                      <span className="compatMeta capitalize">
                                         {mod.modrinth.loaders.join(", ")}
                                       </span>
                                     )}
@@ -2795,7 +2794,7 @@ export default function App() {
                                   <div className="updateCol">
                                     {mod.versionInfo?.upToDate === true ? (
                                       <span className="updateStatus up-to-date">
-                                        <svg className="buttonIcon" style={{ strokeWidth: 3, width: 14, height: 14, marginRight: "4px" }} viewBox="0 0 24 24">
+                                        <svg className="buttonIcon statusIconSmall" viewBox="0 0 24 24">
                                           <path d="M20 6 9 17l-5-5" fill="none" stroke="currentColor" />
                                         </svg>
                                         <span>Up to date</span>
@@ -2803,7 +2802,7 @@ export default function App() {
                                     ) : mod.versionInfo?.upToDate === false ? (
                                       <>
                                         <span className="updateStatus update-available">
-                                          <svg className="buttonIcon" style={{ strokeWidth: 3, width: 14, height: 14, marginRight: "4px" }} viewBox="0 0 24 24">
+                                          <svg className="buttonIcon statusIconSmall" viewBox="0 0 24 24">
                                             <path d="m12 5 7 7-7 7M5 12h14" fill="none" stroke="currentColor" />
                                           </svg>
                                           <span>Update available</span>
@@ -2831,7 +2830,7 @@ export default function App() {
                                       disabled={modToggleLocked}
                                     />
                                     <span className="slider"></span>
-                                    <span style={{ fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.05em", color: mod.enabled ? "var(--sentinel-success)" : "var(--text-soft)" }}>
+                                    <span className={`switchStateLabel ${mod.enabled ? "enabled" : ""}`}>
                                       {mod.enabled ? "Enabled" : "Disabled"}
                                     </span>
                                   </label>
