@@ -1275,8 +1275,11 @@ async function serverOverviewData(server: ManagedServer) {
   const logSources: Array<{ source: ServerEvent["source"]; text: string }> = [];
   if (fileLog.status === "fulfilled") logSources.push({ source: "logs/latest.log", text: fileLog.value });
   if (dockerLog.status === "fulfilled") logSources.push({ source: "docker", text: dockerLog.value });
-  const events = logSources
-    .flatMap(({ source, text }) => text.split(/\r?\n/).map((line, index) => parseLogEvent(line, source, index)).filter((event): event is ServerEvent => Boolean(event)))
+  const parsedEvents = logSources
+    .flatMap(({ source, text }) => text.split(/\r?\n/).map((line, index) => parseLogEvent(line, source, index)).filter((event): event is ServerEvent => Boolean(event)));
+  const reversedEvents = [...parsedEvents].reverse();
+  const events = parsedEvents
+    .filter((event) => event.text !== "Server saved")
     .slice(-10)
     .reverse();
   const props = properties.status === "fulfilled" ? parseProperties(properties.value) : {};
@@ -1287,16 +1290,16 @@ async function serverOverviewData(server: ManagedServer) {
   const activity: ServerActivity = {
     lastStartedAt: dockerInspect.status === "fulfilled" && dockerInspect.value?.State?.StartedAt && !dockerInspect.value.State.StartedAt.startsWith("0001-")
       ? dockerInspect.value.State.StartedAt
-      : events.find((event) => event.text === "Server started")?.timestamp,
+      : reversedEvents.find((event) => event.text === "Server started")?.timestamp,
     lastStoppedAt: dockerInspect.status === "fulfilled" && dockerInspect.value?.State?.FinishedAt && !dockerInspect.value.State.FinishedAt.startsWith("0001-")
       ? dockerInspect.value.State.FinishedAt
-      : events.find((event) => event.text === "Server stopped")?.timestamp,
-    lastRestartAt: events.find((event) => /restart/i.test(event.text))?.timestamp,
+      : reversedEvents.find((event) => event.text === "Server stopped")?.timestamp,
+    lastRestartAt: reversedEvents.find((event) => /restart/i.test(event.text))?.timestamp,
     currentWorld: props["level-name"],
     serverPort: props["server-port"],
     eulaAccepted,
     javaRuntime: normalizeJavaRuntime(server),
-    autosaveStatus: events.some((event) => event.text === "Server saved") ? "Recently saved" : undefined,
+    autosaveStatus: reversedEvents.some((event) => event.text === "Server saved") ? "Recently saved" : undefined,
     playersOnline: parseOnlinePlayerCount(logText),
     maxPlayers: props["max-players"] ? Number(props["max-players"]) : null
   };

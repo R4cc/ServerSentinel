@@ -1,4 +1,4 @@
-import { ChangeEvent, FormEvent, KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, KeyboardEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "./api";
 import { demoListing, demoOverviewData, demoSearchResults, demoServer, demoServerId, demoStats, demoStatus, initialDemoFiles, initialDemoMods, initialDemoSchedules } from "./demo";
 import type { ActivePage, AppState, AuthSession, FabricVersions, FileEntry, FileListing, InstalledMod, LocalePreference, ManagedServer, ModrinthHit, Notice, ProvisionJob, PublicUser, ReleaseChannel, ResourceSample, ResourceStats, ScheduledExecution, ServerOverviewData, ServerStatus, ThemePreference, GeneralJob } from "./types";
@@ -138,6 +138,28 @@ function InlineState({
   );
 }
 
+function hasPotentialEvent(text: string): boolean {
+  const lowercase = text.toLowerCase();
+  return (
+    lowercase.includes("joined the game") ||
+    lowercase.includes("left the game") ||
+    lowercase.includes("lost connection:") ||
+    lowercase.includes("starting minecraft server") ||
+    lowercase.includes("stopping server") ||
+    lowercase.includes("stopping the server") ||
+    lowercase.includes("saved the game") ||
+    lowercase.includes("saved the world") ||
+    lowercase.includes("automatic saving is now enabled") ||
+    lowercase.includes("all chunks are saved") ||
+    lowercase.includes("[error]") ||
+    lowercase.includes("[fatal]") ||
+    lowercase.includes("[warn]") ||
+    /done \([^)]+\)! for help, type "help"/i.test(lowercase) ||
+    /out of memory|heap space|memory/i.test(lowercase) ||
+    /\b(fatal|crash|exception|error)\b/i.test(lowercase)
+  );
+}
+
 export default function App() {
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [authNotice, setAuthNotice] = useState("");
@@ -216,6 +238,34 @@ export default function App() {
     targetEnabled: boolean;
     inFlightEnabled: boolean | null;
   }>>({});
+
+  const overviewRefreshTimeoutRef = useRef<number | null>(null);
+
+  const triggerOverviewRefresh = useCallback((serverId: string) => {
+    if (demoMode && serverId === demoServerId) {
+      setOverviewData(demoOverviewData(demoRunning));
+      return;
+    }
+    if (overviewRefreshTimeoutRef.current !== null) {
+      window.clearTimeout(overviewRefreshTimeoutRef.current);
+    }
+    overviewRefreshTimeoutRef.current = window.setTimeout(async () => {
+      overviewRefreshTimeoutRef.current = null;
+      try {
+        const data = await api<ServerOverviewData>(`/api/servers/${serverId}/events`);
+        setOverviewData(data);
+        setOverviewError("");
+      } catch (error) {
+        setOverviewError(errorMessage(error, "Could not load overview activity. Previously loaded data is preserved."));
+      }
+    }, 500);
+  }, [demoMode, demoRunning]);
+
+  const triggerOverviewRefreshRef = useRef(triggerOverviewRefresh);
+  useEffect(() => {
+    triggerOverviewRefreshRef.current = triggerOverviewRefresh;
+  }, [triggerOverviewRefresh]);
+
   const darkMode = themePreference === "dark" || (themePreference === "system" && systemDark);
   const isProvisioning = activeJobs.some((job) => job.type === "provision" && job.status === "running");
   const isAnyModJobRunning = activeJobs.some((job) => (job.type === "mod-install" || job.type === "mod-upload") && job.status === "running");
@@ -400,6 +450,9 @@ export default function App() {
       }
       if (message.type === "log") {
         setLogs((current) => [...current.slice(-499), `[${message.source ?? "console"}] ${message.text ?? ""}`]);
+        if (message.text && hasPotentialEvent(message.text) && activeServerIdRef.current) {
+          triggerOverviewRefreshRef.current(activeServerIdRef.current);
+        }
       }
       if (message.type === "unavailable") {
         setLogs([message.message ?? "Console stream is unavailable."]);

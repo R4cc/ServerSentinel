@@ -341,7 +341,6 @@ export function demoOverviewData(running: boolean): ServerOverviewData {
     events: [
       { id: "demo-join-steve", type: "success", text: "Player joined: Steve", timestamp: "13:46:00", source: "logs/latest.log" },
       { id: "demo-join-alex", type: "success", text: "Player joined: Alex", timestamp: "13:43:00", source: "logs/latest.log" },
-      { id: "demo-save", type: "success", text: "Server saved", timestamp: "13:20:00", source: "logs/latest.log" },
       { id: "demo-start", type: "success", text: "Server started", timestamp: "11:32:00", source: "logs/latest.log" },
       { id: "demo-warn", type: "warning", text: "Memory-related warning detected", timestamp: "11:12:00", source: "logs/latest.log" }
     ]
