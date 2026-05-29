@@ -112,9 +112,28 @@ export function ActivityHealthPanel({ activity, formatDate }: { activity: Server
 
 function formatEventTimestamp(value: string | undefined, formatDate: (value: string | number | Date) => string) {
   if (!value) return "No timestamp";
-  if (/^\d{2}:\d{2}:\d{2}$/.test(value)) return value.slice(0, 5);
+  if (/^\d{2}:\d{2}:\d{2}$/.test(value)) return value;
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? "Unknown" : formatDate(value);
+  if (Number.isNaN(date.getTime())) return "Unknown";
+
+  const now = new Date();
+  const isToday = date.getFullYear() === now.getFullYear() &&
+                  date.getMonth() === now.getMonth() &&
+                  date.getDate() === now.getDate();
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  const timeStr = `${hours}:${minutes}`;
+
+  if (isToday) {
+    return `Today, ${timeStr}`;
+  }
+
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const month = months[date.getMonth()];
+  const day = date.getDate();
+  return `${month} ${day}, ${timeStr}`;
 }
 
 export function RecentEventsPanel({

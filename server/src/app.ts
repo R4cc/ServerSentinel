@@ -1067,13 +1067,66 @@ function logTimestampToday(time: string | undefined) {
   return date.toISOString();
 }
 
-function parseLogEvent(line: string, source: ServerEvent["source"], index: number): ServerEvent | null {
+function isRawFilenameOrFileListing(text: string): boolean {
+  const trimmed = text.trim();
+  if (/^[-d][rwx-]{9}\s+/.test(trimmed)) {
+    return true;
+  }
+  if (/^[a-zA-Z0-9_\.\-\/]+\.[a-zA-Z]{2,4}$/.test(trimmed)) {
+    return true;
+  }
+  return false;
+}
+
+export function parseLogEvent(line: string, source: ServerEvent["source"], index: number): ServerEvent | null {
   const ansiStripped = line.replace(/\u001b\[[0-9;]*m/g, "").trim();
   if (!ansiStripped) return null;
-  const parsed = ansiStripped.match(/^\[(?<time>\d{2}:\d{2}:\d{2})\]\s+\[[^\]]+\]\s+\[(?<level>[A-Z]+)\]:\s*(?<message>.*)$/);
-  const timestamp = logTimestampToday(parsed?.groups?.time);
-  const level = parsed?.groups?.level ?? "";
-  const message = parsed?.groups?.message ?? ansiStripped;
+
+  const tsMatch = ansiStripped.match(/^\[(?<time>\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?|\d{2}:\d{2}:\d{2})\]/);
+  let timestamp: string | undefined;
+  let rest = ansiStripped;
+
+  if (tsMatch) {
+    const rawTime = tsMatch.groups!.time;
+    if (/^\d{2}:\d{2}:\d{2}$/.test(rawTime)) {
+      timestamp = rawTime;
+    } else {
+      const normalized = rawTime.replace(" ", "T");
+      const date = new Date(normalized);
+      if (!Number.isNaN(date.getTime())) {
+        timestamp = date.toISOString();
+      }
+    }
+    rest = ansiStripped.slice(tsMatch[0].length).trim();
+  }
+
+  let level = "";
+  let message = rest;
+
+  const matchModern = rest.match(/^\[(?<thread>[^\]/]+)\/(?<level>[A-Z]+)\]:\s*(?<message>.*)$/);
+  if (matchModern) {
+    level = matchModern.groups!.level;
+    message = matchModern.groups!.message;
+  } else {
+    const matchLegacy = rest.match(/^\[(?<thread>[^\]]+)\]\s+\[(?<level>[A-Z]+)\]:\s*(?<message>.*)$/);
+    if (matchLegacy) {
+      level = matchLegacy.groups!.level;
+      message = matchLegacy.groups!.message;
+    } else {
+      const matchBrackets = rest.match(/^\[(?<level>[A-Z]+)\]:\s*(?<message>.*)$/);
+      if (matchBrackets) {
+        level = matchBrackets.groups!.level;
+        message = matchBrackets.groups!.message;
+      } else {
+        const matchPlain = rest.match(/^(?<level>[A-Z]+):\s*(?<message>.*)$/);
+        if (matchPlain) {
+          level = matchPlain.groups!.level;
+          message = matchPlain.groups!.message;
+        }
+      }
+    }
+  }
+
   const id = `${source}-${index}-${timestamp ?? ""}-${createHash("sha1").update(message).digest("hex").slice(0, 8)}`;
 
   const playerJoin = message.match(/^(.+?) joined the game$/i);
@@ -1097,11 +1150,16 @@ function parseLogEvent(line: string, source: ServerEvent["source"], index: numbe
   if (/out of memory|heap space|memory/i.test(message) && (/warn/i.test(level) || /warn|error|fatal/i.test(message))) {
     return { id, type: "warning", text: "Memory-related warning detected", timestamp, source };
   }
-  if (/fatal|crash|exception|error/i.test(message) || level === "ERROR" || level === "FATAL") {
+  if (level === "ERROR" || level === "FATAL") {
     return { id, type: "error", text: message.slice(0, 140), timestamp, source };
   }
   if (level === "WARN") {
     return { id, type: "warning", text: message.slice(0, 140), timestamp, source };
+  }
+  if (/fatal|crash|exception|error/i.test(message)) {
+    if (!isRawFilenameOrFileListing(message)) {
+      return { id, type: "error", text: message.slice(0, 140), timestamp, source };
+    }
   }
   return null;
 }
