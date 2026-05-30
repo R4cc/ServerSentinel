@@ -2034,6 +2034,7 @@ const app = Fastify({
 appLogger = app.log;
 await app.register(helmet, {
   contentSecurityPolicy: {
+    useDefaults: false,
     directives: {
       defaultSrc: ["'self'"],
       baseUri: ["'self'"],
@@ -2045,6 +2046,9 @@ await app.register(helmet, {
       connectSrc: ["'self'", "ws:", "wss:"]
     }
   },
+  crossOriginOpenerPolicy: false,
+  originAgentCluster: false,
+  strictTransportSecurity: false,
   referrerPolicy: { policy: "strict-origin-when-cross-origin" },
   xFrameOptions: { action: "deny" }
 });
