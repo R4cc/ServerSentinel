@@ -476,6 +476,7 @@ button .buttonIcon {
 }
 
 .sideNav button {
+  justify-content: flex-start;
   overflow: hidden;
   transition: padding var(--sidebar-ease), gap var(--sidebar-ease), background-color 0.2s, border-color 0.2s, color 0.2s;
 }
@@ -1057,40 +1058,19 @@ button .buttonIcon {
 }
 
 .sidebarCollapsed .accountChip {
-  grid-template-columns: 34px;
-  grid-auto-rows: 0;
-  gap: 0;
-  padding: 0;
+  display: flex;
   justify-content: center;
-  justify-items: center;
   align-items: center;
   width: var(--sidebar-rail-size);
-  min-height: var(--sidebar-rail-size);
+  height: var(--sidebar-rail-size);
+  padding: 0;
   justify-self: center;
   overflow: hidden;
 }
 
-.sidebarCollapsed .accountName {
-  opacity: 0;
-  max-width: 0;
-  max-height: 0;
-  line-height: 0;
-  visibility: hidden;
-}
-
+.sidebarCollapsed .accountName,
 .sidebarCollapsed .accountLogoutButton {
-  opacity: 0;
-  width: 0;
-  max-width: 0;
-  min-width: 0;
-  height: 0;
-  min-height: 0;
-  max-height: 0;
-  visibility: hidden;
-  padding: 0;
-  border-width: 0;
-  margin: 0;
-  overflow: hidden;
+  display: none !important;
 }
 
 .topbar {
