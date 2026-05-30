@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import type { ManagedServer, ServerActivity, ServerEvent, ServerStatus } from '../types';
 import { formatActivityDate, formatUptime } from '../components/ResourcePanel';
 import { fabricLoaderVersionInfo, minecraftVersionInfo, runtimeLabel, runtimeTone, versionSourceLabel, versionValue } from '../utils/format';
+import { AppIcon } from '../components/FileTypeIcon';
 
 const hiddenRecentEventsKey = 'serversentinel-hidden-recent-event-signatures';
 
@@ -159,6 +160,7 @@ export function RecentEventsPanel({
       return [];
     }
   });
+  const [confirmHide, setConfirmHide] = useState<{ signature: string; text: string } | null>(null);
   const hiddenSignatureSet = useMemo(() => new Set(hiddenSignatures), [hiddenSignatures]);
   const visibleEvents = useMemo(
     () => events.filter((event) => !hiddenSignatureSet.has(event.signature)),
@@ -191,8 +193,18 @@ export function RecentEventsPanel({
             <span className="eventMarker" aria-hidden="true" />
             <strong>{event.text}</strong>
             <small>{formatEventTimestamp(event.timestamp, formatDate)}</small>
-            <button type="button" className="eventHideButton" onClick={() => hideEvent(event.signature)}>
-              Hide
+            <button
+              type="button"
+              className="eventHideButton"
+              onClick={() => setConfirmHide({ signature: event.signature, text: event.text })}
+              aria-label="Hide events of this type"
+            >
+              <svg viewBox="0 0 24 24" className="buttonIcon" aria-hidden="true">
+                <path d="M9.88 9.88a3 3 0 1 0 4.24 4.24" />
+                <path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c7 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68" />
+                <path d="M6.61 6.61A13.52 13.52 0 0 0 2 12s3 7 10 7a9.74 9.74 0 0 0 5.39-1.61" />
+                <line x1="2" y1="2" x2="22" y2="22" />
+              </svg>
             </button>
           </div>
         )) : (
@@ -202,6 +214,42 @@ export function RecentEventsPanel({
         )}
       </div>
       <button type="button" className="textLinkButton" onClick={onOpenConsole}>View full log</button>
+
+      {confirmHide && (
+        <div className="modalBackdrop" role="presentation" onClick={() => setConfirmHide(null)}>
+          <section className="modalPanel" role="dialog" aria-modal="true" aria-labelledby="confirm-hide-title" onClick={(e) => e.stopPropagation()}>
+            <div className="panelHeader">
+              <h2 id="confirm-hide-title">Hide Event Type</h2>
+              <button type="button" className="iconButton" onClick={() => setConfirmHide(null)} aria-label="Close dialog">
+                <AppIcon name="x" />
+              </button>
+            </div>
+            <div className="confirmContent" style={{ marginTop: 'var(--space-2)' }}>
+              <p style={{ margin: '0 0 var(--space-4)', fontSize: '14px', lineHeight: 1.5 }}>
+                Are you sure you want to hide all recent events of this type?
+              </p>
+              <blockquote style={{
+                margin: '0 0 var(--space-4)',
+                padding: 'var(--space-2) var(--space-3)',
+                background: 'var(--surface-muted)',
+                borderLeft: '4px solid var(--accent)',
+                borderRadius: 'var(--radius-sm)',
+                fontStyle: 'normal',
+                fontSize: '14px'
+              }}>
+                <strong>{confirmHide.text}</strong>
+              </blockquote>
+              <div className="buttonRow" style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
+                <button type="button" className="secondaryButton" onClick={() => setConfirmHide(null)}>Cancel</button>
+                <button type="button" className="dangerButton" onClick={() => {
+                  hideEvent(confirmHide.signature);
+                  setConfirmHide(null);
+                }}>Hide Events</button>
+              </div>
+            </div>
+          </section>
+        </div>
+      )}
     </section>
   );
 }

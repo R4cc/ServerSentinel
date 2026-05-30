@@ -2278,7 +2278,7 @@ button .buttonIcon {
   display: grid;
   grid-template-columns: 14px minmax(0, 1fr) minmax(92px, auto) auto;
   gap: var(--space-2);
-  align-items: start;
+  align-items: center;
   min-height: 30px;
   border-bottom: var(--border-subtle) solid var(--border-muted);
   padding: 6px 0;
@@ -2294,7 +2294,6 @@ button .buttonIcon {
   border-radius: 999px;
   background: var(--accent);
   justify-self: center;
-  margin-top: 5px;
 }
 
 .eventRow.success .eventMarker {
@@ -2336,17 +2335,23 @@ button .buttonIcon {
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--text-muted);
-  padding: 2px 4px;
-  min-height: 24px;
-  font-size: 12px;
-  font-weight: 800;
+  padding: 2px;
+  min-height: 0;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   box-shadow: none;
+  cursor: pointer;
 }
 
 .eventHideButton:hover:not(:disabled),
 .eventHideButton:focus-visible {
   background: var(--surface-muted);
   color: var(--text);
+  border-color: transparent;
+  transform: none;
 }
 
 .eventEmpty {
