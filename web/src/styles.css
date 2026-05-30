@@ -362,8 +362,7 @@ code {
 .brandBlock p,
 .workspaceHeader p,
 .activeServerStrip span,
-.muted,
-.topbar p {
+.muted {
   color: var(--text-muted);
   font-size: 13px;
   line-height: 1.45;
@@ -931,44 +930,6 @@ button .buttonIcon {
   border-color: var(--border-muted);
 }
 
-.controlGlyph {
-  width: 12px;
-  height: 12px;
-  display: inline-block;
-  flex: 0 0 auto;
-}
-
-.controlGlyph.play {
-  width: 0;
-  height: 0;
-  border-top: 7px solid transparent;
-  border-bottom: 7px solid transparent;
-  border-left: 11px solid currentColor;
-}
-
-.controlGlyph.stop {
-  background: currentColor;
-}
-
-.controlGlyph.restart {
-  border: 2px solid currentColor;
-  border-left-color: transparent;
-  border-radius: 999px;
-  position: relative;
-}
-
-.controlGlyph.restart::after {
-  content: "";
-  position: absolute;
-  right: -3px;
-  top: -3px;
-  width: 0;
-  height: 0;
-  border-left: 5px solid currentColor;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-}
-
 .buttonSpinner {
   width: 14px;
   height: 14px;
@@ -1073,16 +1034,6 @@ button .buttonIcon {
 .sidebarCollapsed .accountName,
 .sidebarCollapsed .accountLogoutButton {
   display: none !important;
-}
-
-.topbar {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-4);
-  align-items: center;
-  border-bottom: var(--border-strong) solid var(--border);
-  padding-bottom: var(--space-4);
-  margin-bottom: var(--space-4);
 }
 
 .pill,
@@ -1427,24 +1378,6 @@ button .buttonIcon {
   color: var(--accent);
 }
 
-.statusGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-  gap: var(--space-2);
-  margin: var(--space-3) 0 var(--space-4);
-}
-
-.statusItem {
-  border: var(--border-strong) solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  padding: var(--space-3);
-  display: grid;
-  gap: var(--space-1);
-}
-
-.statusItem span,
-.eyebrow,
 .appForm label,
 .keyForm label,
 .summaryTile span,
@@ -1454,11 +1387,6 @@ button .buttonIcon {
   font-weight: 900;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-}
-
-.statusItem strong {
-  font-size: 15px;
-  font-weight: 900;
 }
 
 .keyForm {
@@ -2616,12 +2544,6 @@ button .buttonIcon {
   text-transform: none;
 }
 
-.modActionGrid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
-  gap: var(--space-2);
-}
-
 .modsToolbar {
   display: flex;
   flex-wrap: wrap;
@@ -2891,8 +2813,7 @@ button .buttonIcon {
   min-height: 86px;
 }
 
-.modRow:hover,
-.addModRow:hover:not(:disabled) {
+.modRow:hover {
   background: var(--sentinel-accent-soft);
 }
 
@@ -2969,19 +2890,10 @@ button .buttonIcon {
   }
 }
 
-.addModRow {
-  width: 100%;
-  min-height: 82px;
-  text-align: left;
-  color: var(--text);
-}
-
-.addModRow,
 .dangerTextButton {
   background: var(--surface);
 }
 
-.addIcon,
 .modFileIcon {
   width: 52px;
   height: 52px;
@@ -2992,11 +2904,6 @@ button .buttonIcon {
   background: var(--surface-muted);
   color: var(--text);
   font-weight: 900;
-}
-
-.addIcon .buttonIcon {
-  width: 24px;
-  height: 24px;
 }
 
 .modRow p {
@@ -3818,20 +3725,6 @@ details.compatibilityBadge p {
 
 .modsSearchInputCompact input:focus {
   outline: none;
-}
-
-.modsFilterDropdown {
-  border: var(--border-strong) solid var(--border);
-  border-radius: var(--radius-md);
-  background: var(--surface);
-  padding: 0 var(--space-3);
-  height: 40px;
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text);
-  outline: none;
-  min-width: 170px;
-  cursor: pointer;
 }
 
 .modsTable {

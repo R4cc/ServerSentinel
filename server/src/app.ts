@@ -41,6 +41,8 @@ import type {
   PublicUser,
   ReleaseChannel,
   ResolvedServerVersions,
+  ServerActivity,
+  ServerEvent,
   ScheduledExecution,
   Session,
   StoredUser,
@@ -89,27 +91,6 @@ type DockerStats = {
     system_cpu_usage?: number;
   };
   networks?: Record<string, { rx_bytes?: number; tx_bytes?: number }>;
-};
-
-type ServerEvent = {
-  id: string;
-  type: "info" | "success" | "warning" | "error";
-  text: string;
-  timestamp?: string;
-  source: "logs/latest.log" | "docker";
-};
-
-type ServerActivity = {
-  lastStartedAt?: string;
-  lastStoppedAt?: string;
-  lastRestartAt?: string;
-  currentWorld?: string;
-  serverPort?: string;
-  eulaAccepted?: boolean;
-  javaRuntime?: string;
-  autosaveStatus?: string;
-  playersOnline?: number | null;
-  maxPlayers?: number | null;
 };
 
 type CreateServerInput = {

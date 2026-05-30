@@ -4,8 +4,10 @@ import { demoListing, demoOverviewData, demoSearchResults, demoServer, demoServe
 import type { ActivePage, AppState, AuthSession, FabricVersions, FileEntry, FileListing, InstalledMod, LocalePreference, ManagedServer, ModrinthHit, Notice, ProvisionJob, PublicUser, ReleaseChannel, ResourceSample, ResourceStats, ScheduledExecution, ServerOverviewData, ServerStatus, ThemePreference, GeneralJob } from "./types";
 import { bufferToBase64, clientId, isEditableFile, parentPath } from "./utils/files";
 import { compatibilityClass, compatibilityLabel, defaultServerPort, fabricLoaderVersionInfo, formatBytes, isValidServerPort, maxServerPort, minecraftVersionInfo, minServerPort, readLocalePreference, readThemePreference, resourcePollMs, roleRanks, runtimeLabel, runtimeTone, versionValue } from "./utils/format";
+import { minecraftCommandSuggestions } from "./utils/commands";
 import { AuthPanel, UserManagement } from "./components/AuthPanel";
 import { AppIcon, FileTypeIcon, SidebarIcon, SidebarToggleIcon } from "./components/FileTypeIcon";
+import { InlineState } from "./components/InlineState";
 import { Notifications } from "./components/Notifications";
 import { ResourcePanel } from "./components/ResourcePanel";
 import { RuntimeControls } from "./components/RuntimeControls";
@@ -28,57 +30,6 @@ const emptyApp: AppState = {
   dockerSocketMounted: false,
   totalMemory: 0
 };
-
-const minecraftCommandSuggestions = [
-  { command: "help", description: "Show available server commands" },
-  { command: "list", description: "List online players" },
-  { command: "say ", description: "Broadcast a message" },
-  { command: "tellraw @a ", description: "Send JSON chat text" },
-  { command: "stop", description: "Gracefully stop the server" },
-  { command: "save-all", description: "Save world data" },
-  { command: "save-off", description: "Disable automatic saving" },
-  { command: "save-on", description: "Enable automatic saving" },
-  { command: "whitelist on", description: "Enable the whitelist" },
-  { command: "whitelist off", description: "Disable the whitelist" },
-  { command: "whitelist list", description: "List whitelisted players" },
-  { command: "whitelist add ", description: "Add a player to whitelist" },
-  { command: "whitelist remove ", description: "Remove a player from whitelist" },
-  { command: "whitelist reload", description: "Reload whitelist file" },
-  { command: "op ", description: "Grant operator status" },
-  { command: "deop ", description: "Remove operator status" },
-  { command: "kick ", description: "Kick a player" },
-  { command: "ban ", description: "Ban a player" },
-  { command: "pardon ", description: "Unban a player" },
-  { command: "ban-ip ", description: "Ban an IP address" },
-  { command: "pardon-ip ", description: "Unban an IP address" },
-  { command: "banlist", description: "Show ban list" },
-  { command: "seed", description: "Show world seed" },
-  { command: "reload", description: "Reload datapacks" },
-  { command: "defaultgamemode ", description: "Set default game mode" },
-  { command: "gamemode survival ", description: "Set player game mode" },
-  { command: "gamerule ", description: "Change a game rule" },
-  { command: "difficulty ", description: "Set difficulty" },
-  { command: "time set day", description: "Set time to day" },
-  { command: "time set night", description: "Set time to night" },
-  { command: "weather clear", description: "Clear weather" },
-  { command: "weather rain", description: "Start rain" },
-  { command: "tp ", description: "Teleport entities" },
-  { command: "give ", description: "Give items" },
-  { command: "clear ", description: "Clear inventory items" },
-  { command: "effect give ", description: "Apply an effect" },
-  { command: "enchant ", description: "Enchant held item" },
-  { command: "xp add ", description: "Add experience" },
-  { command: "summon ", description: "Summon an entity" },
-  { command: "setblock ", description: "Set a block" },
-  { command: "fill ", description: "Fill an area" },
-  { command: "locate structure ", description: "Locate a structure" },
-  { command: "locate biome ", description: "Locate a biome" },
-  { command: "scoreboard ", description: "Manage scoreboards" },
-  { command: "team ", description: "Manage teams" },
-  { command: "tag ", description: "Manage entity tags" },
-  { command: "datapack list", description: "List datapacks" },
-  { command: "function ", description: "Run a function" }
-];
 
 function readDemoMode() {
   return window.localStorage.getItem("serversentinel-demo-mode") === "true";
@@ -106,36 +57,6 @@ function errorMessage(error: unknown, fallback: string) {
       : message;
   }
   return message;
-}
-
-function InlineState({
-  tone = "info",
-  title,
-  message,
-  actionLabel,
-  onAction,
-  busy = false
-}: {
-  tone?: "info" | "loading" | "error" | "warning" | "empty";
-  title: string;
-  message: string;
-  actionLabel?: string;
-  onAction?: () => void;
-  busy?: boolean;
-}) {
-  return (
-    <div className={`inlineState inlineState-${tone}`} role={tone === "error" ? "alert" : "status"}>
-      <div>
-        <strong>{title}</strong>
-        <span>{message}</span>
-      </div>
-      {onAction && actionLabel && (
-        <button type="button" className="secondaryButton" onClick={onAction} disabled={busy}>
-          {busy ? "Working..." : actionLabel}
-        </button>
-      )}
-    </div>
-  );
 }
 
 function hasPotentialEvent(text: string): boolean {
