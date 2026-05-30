@@ -106,9 +106,13 @@ export type ResourceSample = ResourceStats & {
 
 export type ServerEvent = {
   id: string;
+  eventType: "server_started" | "server_stopped" | "player_joined" | "player_left" | "mod_disabled" | "server_crashed";
   type: "info" | "success" | "warning" | "error";
+  severity: "info" | "success" | "warning" | "error";
   text: string;
+  message: string;
   timestamp?: string;
+  signature: string;
   source: "logs/latest.log" | "docker";
 };
 
@@ -127,6 +131,7 @@ export type ServerActivity = {
 
 export type ServerOverviewData = {
   events: ServerEvent[];
+  eventsStatus?: "ok" | "unavailable";
   activity: ServerActivity;
 };
 

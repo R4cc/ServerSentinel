@@ -1,4 +1,4 @@
-import type { FileListing, FileEntry, InstalledMod, ManagedServer, ModrinthHit, ResourceSample, ScheduledExecution, ServerOverviewData, ServerStatus } from './types';
+import type { FileListing, FileEntry, InstalledMod, ManagedServer, ModrinthHit, ResourceSample, ScheduledExecution, ServerEvent, ServerOverviewData, ServerStatus } from './types';
 
 const demoStartedAt = Date.now();
 
@@ -324,8 +324,13 @@ export function demoStats(running: boolean): ResourceSample {
   };
 }
 
+function demoEvent(event: ServerEvent): ServerEvent {
+  return event;
+}
+
 export function demoOverviewData(running: boolean): ServerOverviewData {
   return {
+    eventsStatus: "ok",
     activity: {
       lastStartedAt: running ? new Date(demoStartedAt).toISOString() : new Date(demoStartedAt - 86_400_000).toISOString(),
       lastStoppedAt: running ? new Date(demoStartedAt - 86_400_000).toISOString() : new Date().toISOString(),
@@ -339,10 +344,10 @@ export function demoOverviewData(running: boolean): ServerOverviewData {
       maxPlayers: 20
     },
     events: [
-      { id: "demo-join-steve", type: "success", text: "Player joined: Steve", timestamp: "13:46:00", source: "logs/latest.log" },
-      { id: "demo-join-alex", type: "success", text: "Player joined: Alex", timestamp: "13:43:00", source: "logs/latest.log" },
-      { id: "demo-start", type: "success", text: "Server started", timestamp: "11:32:00", source: "logs/latest.log" },
-      { id: "demo-warn", type: "warning", text: "Memory-related warning detected", timestamp: "11:12:00", source: "logs/latest.log" }
+      demoEvent({ id: "demo-join-steve", eventType: "player_joined", type: "success", severity: "success", text: "Player joined: Steve", message: "Player joined: Steve", timestamp: "13:46:00", signature: "player_joined:steve", source: "logs/latest.log" }),
+      demoEvent({ id: "demo-join-alex", eventType: "player_joined", type: "success", severity: "success", text: "Player joined: Alex", message: "Player joined: Alex", timestamp: "13:43:00", signature: "player_joined:alex", source: "logs/latest.log" }),
+      demoEvent({ id: "demo-left-sam", eventType: "player_left", type: "info", severity: "info", text: "Player left: Sam", message: "Player left: Sam", timestamp: "13:40:00", signature: "player_left:sam", source: "logs/latest.log" }),
+      demoEvent({ id: "demo-start", eventType: "server_started", type: "success", severity: "success", text: "Server started", message: "Server started", timestamp: "11:32:00", signature: "server_started", source: "logs/latest.log" })
     ]
   };
 }

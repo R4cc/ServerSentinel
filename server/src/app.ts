@@ -1166,24 +1166,42 @@ function normalizeJavaRuntime(server: ManagedServer) {
   return undefined;
 }
 
-function logTimestampToday(time: string | undefined) {
-  if (!time) return undefined;
-  const [hours, minutes, seconds] = time.split(":").map((part) => Number(part));
-  if (![hours, minutes, seconds].every(Number.isFinite)) return undefined;
-  const date = new Date();
-  date.setHours(hours, minutes, seconds, 0);
-  return date.toISOString();
+type ParsedEventInput = {
+  eventType: ServerEvent["eventType"];
+  severity: ServerEvent["severity"];
+  message: string;
+  timestamp?: string;
+  source: ServerEvent["source"];
+  index: number;
+  signature: string;
+};
+
+function eventFromParsedLine(input: ParsedEventInput): ServerEvent {
+  const id = `${input.source}-${input.index}-${input.timestamp ?? ""}-${createHash("sha1").update(input.signature).digest("hex").slice(0, 8)}`;
+  return {
+    id,
+    eventType: input.eventType,
+    type: input.severity,
+    severity: input.severity,
+    text: input.message,
+    message: input.message,
+    timestamp: input.timestamp,
+    signature: input.signature,
+    source: input.source
+  };
 }
 
-function isRawFilenameOrFileListing(text: string): boolean {
-  const trimmed = text.trim();
-  if (/^[-d][rwx-]{9}\s+/.test(trimmed)) {
-    return true;
-  }
-  if (/^[a-zA-Z0-9_\.\-\/]+\.[a-zA-Z]{2,4}$/.test(trimmed)) {
-    return true;
-  }
-  return false;
+function eventSignature(eventType: ServerEvent["eventType"], subject?: string) {
+  const normalized = subject?.trim().toLowerCase().replace(/\s+/g, " ");
+  return normalized ? `${eventType}:${normalized}` : eventType;
+}
+
+function cleanPlayerName(value: string) {
+  return value.trim().replace(/^"|"$/g, "");
+}
+
+function cleanModName(value: string) {
+  return value.trim().replace(/^["']|["']$/g, "").replace(/\s+/g, " ");
 }
 
 export function parseLogEvent(line: string, source: ServerEvent["source"], index: number): ServerEvent | null {
@@ -1235,59 +1253,137 @@ export function parseLogEvent(line: string, source: ServerEvent["source"], index
     }
   }
 
-  const id = `${source}-${index}-${timestamp ?? ""}-${createHash("sha1").update(message).digest("hex").slice(0, 8)}`;
-
   const playerJoin = message.match(/^(.+?) joined the game$/i);
-  if (playerJoin) return { id, type: "success", text: `Player joined: ${playerJoin[1]}`, timestamp, source };
+  if (playerJoin) {
+    const player = cleanPlayerName(playerJoin[1]);
+    return eventFromParsedLine({
+      eventType: "player_joined",
+      severity: "success",
+      message: `Player joined: ${player}`,
+      timestamp,
+      source,
+      index,
+      signature: eventSignature("player_joined", player)
+    });
+  }
 
   const playerLeft = message.match(/^(.+?) left the game$/i);
-  if (playerLeft) return { id, type: "info", text: `Player left: ${playerLeft[1]}`, timestamp, source };
+  if (playerLeft) {
+    const player = cleanPlayerName(playerLeft[1]);
+    return eventFromParsedLine({
+      eventType: "player_left",
+      severity: "info",
+      message: `Player left: ${player}`,
+      timestamp,
+      source,
+      index,
+      signature: eventSignature("player_left", player)
+    });
+  }
 
   const playerDisconnected = message.match(/^(.+?) lost connection:/i);
-  if (playerDisconnected) return { id, type: "warning", text: `Player disconnected: ${playerDisconnected[1]}`, timestamp, source };
+  if (playerDisconnected) {
+    const player = cleanPlayerName(playerDisconnected[1]);
+    return eventFromParsedLine({
+      eventType: "player_left",
+      severity: "warning",
+      message: `Player disconnected: ${player}`,
+      timestamp,
+      source,
+      index,
+      signature: eventSignature("player_left", player)
+    });
+  }
+
+  const disconnectingPlayer = message.match(/^Disconnecting\s+(.+?)(?:\s*\(|:|$)/i);
+  if (disconnectingPlayer) {
+    const player = cleanPlayerName(disconnectingPlayer[1]);
+    return eventFromParsedLine({
+      eventType: "player_left",
+      severity: "warning",
+      message: `Player disconnected: ${player}`,
+      timestamp,
+      source,
+      index,
+      signature: eventSignature("player_left", player)
+    });
+  }
 
   if (/Done \([^)]+\)! For help, type "help"/i.test(message) || /Starting minecraft server/i.test(message)) {
-    return { id, type: "success", text: "Server started", timestamp, source };
+    return eventFromParsedLine({
+      eventType: "server_started",
+      severity: "success",
+      message: "Server started",
+      timestamp,
+      source,
+      index,
+      signature: eventSignature("server_started")
+    });
   }
-  if (/Stopping server|Stopping the server/i.test(message)) {
-    return { id, type: "info", text: "Server stopped", timestamp, source };
+  if (/Stopping server|Stopping the server|ThreadedAnvilChunkStorage: All chunks are saved/i.test(message)) {
+    return eventFromParsedLine({
+      eventType: "server_stopped",
+      severity: "info",
+      message: "Server stopped",
+      timestamp,
+      source,
+      index,
+      signature: eventSignature("server_stopped")
+    });
   }
-  if (/Saved the game|Saved the world|Automatic saving is now enabled|ThreadedAnvilChunkStorage.*All chunks are saved/i.test(message)) {
-    return { id, type: "success", text: "Server saved", timestamp, source };
+
+  const disabledJar = message.match(/\b([\w .+@()[\]-]+?\.jar(?:\.disabled)?)\b.*\b(?:disabled|disabling)\b/i)
+    ?? message.match(/\b(?:disabled|disabling)\b.*\b([\w .+@()[\]-]+?\.jar(?:\.disabled)?)\b/i);
+  const disabledMod = disabledJar
+    ?? message.match(/\bmod\s+["']?([^"',:]+?)["']?\s+(?:was\s+)?disabled\b/i)
+    ?? message.match(/\b(?:disabled|disabling)\s+mod\s+["']?([^"',:]+?)["']?\b/i);
+  if (disabledMod) {
+    const modName = cleanModName(disabledMod[1]);
+    return eventFromParsedLine({
+      eventType: "mod_disabled",
+      severity: "warning",
+      message: `Mod disabled: ${modName}`,
+      timestamp,
+      source,
+      index,
+      signature: eventSignature("mod_disabled", modName)
+    });
   }
-  if (/out of memory|heap space|memory/i.test(message) && (/warn/i.test(level) || /warn|error|fatal/i.test(message))) {
-    return { id, type: "warning", text: "Memory-related warning detected", timestamp, source };
-  }
-  if (level === "ERROR" || level === "FATAL") {
-    return { id, type: "error", text: message.slice(0, 140), timestamp, source };
-  }
-  if (level === "WARN") {
-    return { id, type: "warning", text: message.slice(0, 140), timestamp, source };
-  }
-  if (/fatal|crash|exception|error/i.test(message)) {
-    if (!isRawFilenameOrFileListing(message)) {
-      return { id, type: "error", text: message.slice(0, 140), timestamp, source };
-    }
+
+  if (
+    /Encountered an unexpected exception|This crash report has been saved to:|Minecraft Crash Report|A crash report has been generated|The game crashed|server crashed/i.test(message)
+    || (level === "FATAL" && /\b(exception|crash|crashed)\b/i.test(message))
+  ) {
+    return eventFromParsedLine({
+      eventType: "server_crashed",
+      severity: "error",
+      message: "Server crashed",
+      timestamp,
+      source,
+      index,
+      signature: eventSignature("server_crashed")
+    });
   }
   return null;
 }
 
 async function serverOverviewData(server: ManagedServer) {
+  const dockerConfigured = dockerControlConfigured(server);
   const [fileLog, dockerLog, properties, eula, dockerInspect] = await Promise.allSettled([
     readLatestServerLog(server),
-    dockerControlConfigured(server) ? dockerRecentLogs(server) : Promise.resolve(""),
+    dockerConfigured ? dockerRecentLogs(server) : Promise.resolve(""),
     validateExistingInsideServer(server, "server.properties").then((path) => readFile(path, "utf8")),
     validateExistingInsideServer(server, "eula.txt").then((path) => readFile(path, "utf8")),
-    dockerControlConfigured(server) ? dockerRequest<DockerContainerInspect>("GET", `/containers/${encodeURIComponent(dockerContainerName(server))}/json`, 200) : Promise.resolve(null)
+    dockerConfigured ? dockerRequest<DockerContainerInspect>("GET", `/containers/${encodeURIComponent(dockerContainerName(server))}/json`, 200) : Promise.resolve(null)
   ]);
   const logSources: Array<{ source: ServerEvent["source"]; text: string }> = [];
   if (fileLog.status === "fulfilled") logSources.push({ source: "logs/latest.log", text: fileLog.value });
-  if (dockerLog.status === "fulfilled") logSources.push({ source: "docker", text: dockerLog.value });
+  if (dockerLog.status === "fulfilled" && dockerConfigured) logSources.push({ source: "docker", text: dockerLog.value });
+  const eventsStatus = fileLog.status === "fulfilled" || (dockerConfigured && dockerLog.status === "fulfilled") ? "ok" : "unavailable";
   const parsedEvents = logSources
     .flatMap(({ source, text }) => text.split(/\r?\n/).map((line, index) => parseLogEvent(line, source, index)).filter((event): event is ServerEvent => Boolean(event)));
   const reversedEvents = [...parsedEvents].reverse();
   const events = parsedEvents
-    .filter((event) => event.text !== "Server saved")
     .slice(-10)
     .reverse();
   const props = properties.status === "fulfilled" ? parseProperties(properties.value) : {};
@@ -1298,20 +1394,20 @@ async function serverOverviewData(server: ManagedServer) {
   const activity: ServerActivity = {
     lastStartedAt: dockerInspect.status === "fulfilled" && dockerInspect.value?.State?.StartedAt && !dockerInspect.value.State.StartedAt.startsWith("0001-")
       ? dockerInspect.value.State.StartedAt
-      : reversedEvents.find((event) => event.text === "Server started")?.timestamp,
+      : reversedEvents.find((event) => event.eventType === "server_started")?.timestamp,
     lastStoppedAt: dockerInspect.status === "fulfilled" && dockerInspect.value?.State?.FinishedAt && !dockerInspect.value.State.FinishedAt.startsWith("0001-")
       ? dockerInspect.value.State.FinishedAt
-      : reversedEvents.find((event) => event.text === "Server stopped")?.timestamp,
+      : reversedEvents.find((event) => event.eventType === "server_stopped")?.timestamp,
     lastRestartAt: reversedEvents.find((event) => /restart/i.test(event.text))?.timestamp,
     currentWorld: props["level-name"],
     serverPort: props["server-port"],
     eulaAccepted,
     javaRuntime: normalizeJavaRuntime(server),
-    autosaveStatus: reversedEvents.some((event) => event.text === "Server saved") ? "Recently saved" : undefined,
+    autosaveStatus: /Saved the game|Saved the world|Automatic saving is now enabled/i.test(logText) ? "Recently saved" : undefined,
     playersOnline: parseOnlinePlayerCount(logText),
     maxPlayers: props["max-players"] ? Number(props["max-players"]) : null
   };
-  return { events, activity };
+  return { events, eventsStatus, activity };
 }
 
 async function onlinePlayerCount(server: ManagedServer) {

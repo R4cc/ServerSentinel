@@ -9,6 +9,8 @@ describe("parseLogEvent log parsing and timestamp extraction", () => {
     expect(event!.timestamp).toBe("12:34:56");
     expect(event!.type).toBe("success");
     expect(event!.text).toBe("Player joined: Antigravity");
+    expect(event!.eventType).toBe("player_joined");
+    expect(event!.signature).toBe("player_joined:antigravity");
   });
 
   it("parses wrapper log format with full date-time timestamp", () => {
@@ -18,6 +20,7 @@ describe("parseLogEvent log parsing and timestamp extraction", () => {
     expect(event!.timestamp).toBe(new Date("2026-05-29T12:34:56").toISOString());
     expect(event!.type).toBe("info");
     expect(event!.text).toBe("Player left: Antigravity");
+    expect(event!.eventType).toBe("player_left");
   });
 
   it("correctly identifies server start events", () => {
@@ -26,14 +29,38 @@ describe("parseLogEvent log parsing and timestamp extraction", () => {
     expect(event).not.toBeNull();
     expect(event!.text).toBe("Server started");
     expect(event!.type).toBe("success");
+    expect(event!.signature).toBe("server_started");
   });
 
-  it("correctly identifies server saved events", () => {
-    const line = "[12:34:56] [Server thread/INFO]: Saved the game";
+  it("correctly identifies server stopped events from shutdown lines", () => {
+    const line = "[12:34:56] [Server thread/INFO]: Stopping server";
     const event = parseLogEvent(line, "logs/latest.log", 4);
     expect(event).not.toBeNull();
-    expect(event!.text).toBe("Server saved");
-    expect(event!.type).toBe("success");
+    expect(event!.text).toBe("Server stopped");
+    expect(event!.eventType).toBe("server_stopped");
+  });
+
+  it("ignores server save lines because they are not recent events", () => {
+    const line = "[12:34:56] [Server thread/INFO]: Saved the game";
+    const event = parseLogEvent(line, "logs/latest.log", 4);
+    expect(event).toBeNull();
+  });
+
+  it("identifies explicit mod disabled events", () => {
+    const line = "[12:34:56] [Server thread/WARN]: Disabled mod sodium.jar";
+    const event = parseLogEvent(line, "logs/latest.log", 4);
+    expect(event).not.toBeNull();
+    expect(event!.text).toBe("Mod disabled: sodium.jar");
+    expect(event!.eventType).toBe("mod_disabled");
+    expect(event!.signature).toBe("mod_disabled:sodium.jar");
+  });
+
+  it("identifies explicit crash report events", () => {
+    const line = "[12:34:56] [Server thread/ERROR]: Encountered an unexpected exception";
+    const event = parseLogEvent(line, "logs/latest.log", 4);
+    expect(event).not.toBeNull();
+    expect(event!.text).toBe("Server crashed");
+    expect(event!.eventType).toBe("server_crashed");
   });
 
   it("ignores file listing lines from ls -la even if they contain 'error'", () => {
@@ -50,11 +77,14 @@ describe("parseLogEvent log parsing and timestamp extraction", () => {
     expect(parseLogEvent(line2, "docker", 7)).toBeNull();
   });
 
-  it("still catches real errors/warnings without timestamps if they are not filenames", () => {
+  it("ignores broad errors and warnings that are not allowlisted event types", () => {
     const line = "java.lang.NullPointerException: something went wrong";
     const event = parseLogEvent(line, "logs/latest.log", 8);
-    expect(event).not.toBeNull();
-    expect(event!.type).toBe("error");
-    expect(event!.text).toContain("NullPointerException");
+    expect(event).toBeNull();
+  });
+
+  it("ignores Fabric dependency tree lines and JVM informational messages", () => {
+    expect(parseLogEvent("|-- fabric-crash-report-info-v1 1.0.3+9f78a5a839", "logs/latest.log", 9)).toBeNull();
+    expect(parseLogEvent("[12:34:56] [main/INFO]: Distant Horizons: G1 Garbage collector detected.", "logs/latest.log", 10)).toBeNull();
   });
 });

@@ -2276,7 +2276,7 @@ button .buttonIcon {
 
 .eventRow {
   display: grid;
-  grid-template-columns: 14px minmax(0, 1fr) minmax(92px, auto);
+  grid-template-columns: 14px minmax(0, 1fr) minmax(92px, auto) auto;
   gap: var(--space-2);
   align-items: start;
   min-height: 30px;
@@ -2331,6 +2331,24 @@ button .buttonIcon {
   white-space: nowrap;
 }
 
+.eventHideButton {
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  padding: 2px 4px;
+  min-height: 24px;
+  font-size: 12px;
+  font-weight: 800;
+  box-shadow: none;
+}
+
+.eventHideButton:hover:not(:disabled),
+.eventHideButton:focus-visible {
+  background: var(--surface-muted);
+  color: var(--text);
+}
+
 .eventEmpty {
   border: var(--border-strong) solid var(--border);
   border-radius: var(--radius-md);
@@ -2350,6 +2368,11 @@ button .buttonIcon {
   background: transparent;
   justify-self: start;
   box-shadow: none;
+}
+
+.textLinkButton.compact {
+  margin-top: 0;
+  font-size: 12px;
 }
 
 .resourceMeta {
@@ -3475,6 +3498,11 @@ details.compatibilityBadge p {
 
   .eventRow small {
     grid-column: 2;
+  }
+
+  .eventHideButton {
+    grid-column: 2;
+    justify-self: start;
   }
 
   .terminalPrompt {

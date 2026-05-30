@@ -65,19 +65,15 @@ function hasPotentialEvent(text: string): boolean {
     lowercase.includes("joined the game") ||
     lowercase.includes("left the game") ||
     lowercase.includes("lost connection:") ||
+    lowercase.includes("disconnecting ") ||
     lowercase.includes("starting minecraft server") ||
     lowercase.includes("stopping server") ||
     lowercase.includes("stopping the server") ||
-    lowercase.includes("saved the game") ||
-    lowercase.includes("saved the world") ||
-    lowercase.includes("automatic saving is now enabled") ||
     lowercase.includes("all chunks are saved") ||
-    lowercase.includes("[error]") ||
-    lowercase.includes("[fatal]") ||
-    lowercase.includes("[warn]") ||
     /done \([^)]+\)! for help, type "help"/i.test(lowercase) ||
-    /out of memory|heap space|memory/i.test(lowercase) ||
-    /\b(fatal|crash|exception|error)\b/i.test(lowercase)
+    /\b(disabled|disabling)\b.*\b(mod|\.jar)/i.test(lowercase) ||
+    /\b(mod|\.jar).*?\b(disabled|disabling)\b/i.test(lowercase) ||
+    /encountered an unexpected exception|this crash report has been saved to:|minecraft crash report|a crash report has been generated|the game crashed|server crashed/i.test(lowercase)
   );
 }
 
@@ -2360,7 +2356,7 @@ export default function App() {
                 />
 
                 <ActivityHealthPanel activity={overviewData.activity} formatDate={formatDisplayDate} />
-                <RecentEventsPanel events={overviewData.events} formatDate={formatDisplayDate} onOpenConsole={() => setActivePage("console")} />
+                <RecentEventsPanel events={overviewData.events} eventsStatus={overviewData.eventsStatus} formatDate={formatDisplayDate} onOpenConsole={() => setActivePage("console")} />
 
               </section>
             )}

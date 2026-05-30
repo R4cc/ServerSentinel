@@ -1,6 +1,9 @@
+import { useEffect, useMemo, useState } from 'react';
 import type { ManagedServer, ServerActivity, ServerEvent, ServerStatus } from '../types';
 import { formatActivityDate, formatUptime } from '../components/ResourcePanel';
 import { fabricLoaderVersionInfo, minecraftVersionInfo, runtimeLabel, runtimeTone, versionSourceLabel, versionValue } from '../utils/format';
+
+const hiddenRecentEventsKey = 'serversentinel-hidden-recent-event-signatures';
 
 function dockerStateLabel(status: ServerStatus | null, dockerSocketMounted: boolean) {
   if (!dockerSocketMounted) return "Unavailable";
@@ -138,18 +141,49 @@ function formatEventTimestamp(value: string | undefined, formatDate: (value: str
 
 export function RecentEventsPanel({
   events,
+  eventsStatus = "ok",
   formatDate,
   onOpenConsole
 }: {
   events: ServerEvent[];
+  eventsStatus?: "ok" | "unavailable";
   formatDate: (value: string | number | Date) => string;
   onOpenConsole: () => void;
 }) {
-  const displayEvents = events.slice(0, 8);
+  const [hiddenSignatures, setHiddenSignatures] = useState<string[]>(() => {
+    try {
+      const stored = window.localStorage.getItem(hiddenRecentEventsKey);
+      const parsed = stored ? JSON.parse(stored) : [];
+      return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === 'string') : [];
+    } catch {
+      return [];
+    }
+  });
+  const hiddenSignatureSet = useMemo(() => new Set(hiddenSignatures), [hiddenSignatures]);
+  const visibleEvents = useMemo(
+    () => events.filter((event) => !hiddenSignatureSet.has(event.signature)),
+    [events, hiddenSignatureSet]
+  );
+  const displayEvents = visibleEvents.slice(0, 8);
+  const hasHiddenEvents = events.some((event) => hiddenSignatureSet.has(event.signature));
+
+  useEffect(() => {
+    window.localStorage.setItem(hiddenRecentEventsKey, JSON.stringify(hiddenSignatures));
+  }, [hiddenSignatures]);
+
+  function hideEvent(signature: string) {
+    setHiddenSignatures((current) => current.includes(signature) ? current : [...current, signature]);
+  }
+
   return (
     <section className="panel eventsPanel">
       <div className="panelHeader">
         <h2>Recent Events</h2>
+        {hiddenSignatures.length > 0 && (
+          <button type="button" className="textLinkButton compact" onClick={() => setHiddenSignatures([])}>
+            Reset hidden events
+          </button>
+        )}
       </div>
       <div className="eventList">
         {displayEvents.length ? displayEvents.map((event) => (
@@ -157,9 +191,14 @@ export function RecentEventsPanel({
             <span className="eventMarker" aria-hidden="true" />
             <strong>{event.text}</strong>
             <small>{formatEventTimestamp(event.timestamp, formatDate)}</small>
+            <button type="button" className="eventHideButton" onClick={() => hideEvent(event.signature)}>
+              Hide
+            </button>
           </div>
         )) : (
-          <div className="eventEmpty">No recent server events found.</div>
+          <div className="eventEmpty">
+            {hasHiddenEvents ? "All recent matching events are hidden." : eventsStatus === "unavailable" ? "Logs unavailable." : "No recent server events found."}
+          </div>
         )}
       </div>
       <button type="button" className="textLinkButton" onClick={onOpenConsole}>View full log</button>
