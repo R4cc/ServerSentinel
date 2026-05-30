@@ -1054,6 +1054,8 @@ button .buttonIcon {
 .sidebarCollapsed .serverPicker {
   opacity: 0;
   max-width: 0;
+  height: 0;
+  overflow: hidden;
   visibility: hidden;
 }
 
@@ -3411,6 +3413,7 @@ details.compatibilityBadge p {
 
   .sidebarCollapsed .serverPicker {
     display: grid;
+    height: auto;
   }
 
   .sidebarCollapsed .accountLogoutButton {
